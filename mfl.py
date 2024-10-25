@@ -24,9 +24,11 @@ def main():
     # Set up argument parser
     arg_parser = argparse.ArgumentParser(description='Parse and type-check functional programming expressions.')
     arg_parser.add_argument('expression', nargs='?', help='Expression to parse and type-check')
-    arg_parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
+    arg_parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output from all modules')
+    arg_parser.add_argument('-b', '--backend-verbose', action='store_true', help='Enable verbose output from backend')
     arg_parser.add_argument('-o', '--output', default="mfl.core", help='Output file name')
     arg_parser.add_argument('-s', '--secd', action='store_true', help='Execute using SECD machine instead of generating Core Erlang')
+    arg_parser.add_argument('-k', '--ski', action='store_true', help='Execute using SKI combinator machine')
     args = arg_parser.parse_args()
 
     parser = FunctionalParser([], {}, verbose=args.verbose)  # Grammar rules handled in reduction methods
@@ -35,6 +37,7 @@ def main():
     if args.expression:
         try:
             ast = parser.parse(args.expression)
+            print("Successfully parsed!")
             print(f"AST: {ast}")
             print(f"AST(raw): {ast.raw_structure()}")
 
@@ -48,10 +51,20 @@ def main():
                     try:
                         # Execute using SECD machine
                         from mfl_secd import execute_ast
-                        result = execute_ast(ast, args.verbose)
+                        result = execute_ast(ast, args.backend_verbose)
                         print(f"SECD machine result: {result}")
                     except Exception as e:
                         print(f"Error executing with SECD machine: {e}")
+                elif args.ski:
+                    try:
+                        # Execute using SKI machine
+                        from mfl_ski import execute_ast 
+                        if args.verbose or args.backend_verbose:
+                            print("\nExecuting with SKI combinator machine...")
+                        result = execute_ast(ast, args.backend_verbose)
+                        print(f"SKI machine result: {result}")
+                    except Exception as e:
+                        print(f"Error executing with SKI machine: {e}")
                 else:
                     try:
                         # Generate Core Erlang code

@@ -1,0 +1,206 @@
+"""
+SKI Combinator Calculus implementation for MFL.
+
+This module implements a SKI combinator calculus machine as an alternative backend
+for executing MFL programs. It first converts lambda expressions to SKI combinators,
+then reduces them using combinator reduction rules.
+"""
+from dataclasses import dataclass
+from typing import Optional, Union, List
+from mfl_type_checker import ASTNode, Var, Function, Apply, Let, Int, Bool, BinOp, UnaryOp
+
+@dataclass
+class Combinator:
+    """Base class for SKI combinators"""
+    def __str__(self) -> str:
+        return self.__class__.__name__
+
+class S(Combinator):
+    """S combinator: S x y z = x z (y z)"""
+    pass
+
+class K(Combinator):
+    """K combinator: K x y = x"""
+    pass
+
+class I(Combinator):
+    """I combinator: I x = x"""
+    pass
+
+@dataclass
+class App:
+    """Application of combinators"""
+    left: Union[Combinator, 'App', Int, Bool]
+    right: Union[Combinator, 'App', Int, Bool]
+    
+    def __str__(self) -> str:
+        return f"({self.left} {self.right})"
+
+class SKIMachine:
+    """
+    Implementation of the SKI combinator reduction machine.
+    
+    The machine reduces SKI combinator expressions according to the rules:
+    - S x y z → x z (y z)
+    - K x y → x
+    - I x → x
+    """
+    def __init__(self, verbose: bool = False):
+        self.verbose = verbose
+
+    def debug_print(self, message: str) -> None:
+        """Print debug messages if verbose mode is enabled"""
+        if self.verbose:
+            print(f"SKI: {message}")
+
+    def convert_to_ski(self, ast: ASTNode) -> Union[Combinator, App, Int, Bool]:
+        """Convert MFL AST to SKI combinators"""
+        if isinstance(ast, Int):
+            return ast
+        elif isinstance(ast, Bool):
+            return ast
+        elif isinstance(ast, Var):
+            return I()  # Variables become I combinators
+        elif isinstance(ast, Function):
+            # Convert λx.E to SKI form using bracket abstraction
+            body = self.convert_to_ski(ast.body)
+            return self.abstract_variable(ast.arg.name, body)
+        elif isinstance(ast, Apply):
+            # Convert function application
+            func = self.convert_to_ski(ast.func)
+            arg = self.convert_to_ski(ast.arg)
+            return App(func, arg)
+        elif isinstance(ast, Let):
+            # Convert let expressions to application of lambda
+            func = Function(ast.name, ast.body)
+            return self.convert_to_ski(Apply(func, ast.value))
+        elif isinstance(ast, (BinOp, UnaryOp)):
+            # Handle operators as primitive combinators
+            return self.convert_operator(ast)
+        raise ValueError(f"Unsupported AST node type: {type(ast)}")
+
+    def abstract_variable(self, var: str, body: Union[Combinator, App]) -> Union[Combinator, App]:
+        """Perform bracket abstraction to eliminate variables"""
+        if isinstance(body, (Int, Bool)):
+            return App(K(), body)
+        elif isinstance(body, I):
+            return I()
+        elif isinstance(body, App):
+            return App(App(S(), self.abstract_variable(var, body.left)),
+                      self.abstract_variable(var, body.right))
+        return App(K(), body)
+
+    def convert_operator(self, ast: Union[BinOp, UnaryOp]) -> Union[App, Int, Bool]:
+        """Convert operators to combinator form"""
+        if isinstance(ast, BinOp):
+            left = self.convert_to_ski(ast.left)
+            right = self.convert_to_ski(ast.right)
+            
+            # Create a special application structure for arithmetic
+            if ast.op == '*':
+                # Wrap operands in K combinators to preserve their values
+                return App(App(App(S(), App(K(), left)), App(K(), right)), I())
+            elif ast.op in {'+', '-', '/'}:
+                if isinstance(left, Int) and isinstance(right, Int):
+                    if ast.op == '+':
+                        return Int(left.value + right.value)
+                    elif ast.op == '-':
+                        return Int(left.value - right.value)
+                    elif ast.op == '/':
+                        return Int(left.value // right.value)
+            elif isinstance(left, Bool) and isinstance(right, Bool):
+                if ast.op == '&':
+                    return Bool(left.value and right.value)
+                elif ast.op == '|':
+                    return Bool(left.value or right.value)
+            
+            # Default case
+            return App(App(K(), left), right)
+        elif isinstance(ast, UnaryOp) and ast.op == '!':
+            operand = self.convert_to_ski(ast.operand)
+            return App(I(), operand)  # Simplified not operator
+        raise ValueError(f"Unsupported operator: {ast.op}")
+
+    def reduce(self, expr: Union[Combinator, App, Int, Bool]) -> Union[Combinator, App, Int, Bool]:
+        """Reduce SKI expression to normal form"""
+        while True:
+            new_expr = self.reduce_step(expr)
+            if new_expr == expr:
+                break
+            expr = new_expr
+            self.debug_print(f"Reduced to: {expr}")
+            
+            # Check if we've reached a final value
+            if isinstance(expr, (Int, Bool)):
+                return expr
+        return expr
+
+    def reduce_step(self, expr: Union[Combinator, App, Int, Bool]) -> Union[Combinator, App, Int, Bool]:
+        """Perform one step of SKI reduction"""
+        if not isinstance(expr, App):
+            self.debug_print(f"Not an application, returning: {expr}")
+            return expr
+        
+        self.debug_print(f"Reducing application: {expr}")
+
+        # Handle multiplication pattern
+        if (isinstance(expr.left, App) and isinstance(expr.right, App) and
+            isinstance(expr.left.left, App) and isinstance(expr.left.left.left, S)):
+            # Try to extract numeric values
+            left_operand = self.reduce(expr.left.right)
+            right_operand = self.reduce(expr.right)
+            
+            if isinstance(left_operand, Int) and isinstance(right_operand, Int):
+                result = Int(left_operand.value * right_operand.value)
+                self.debug_print(f"Computed multiplication: {left_operand.value} * {right_operand.value} = {result.value}")
+                return result
+        
+        # Reduce left and right sides
+        self.debug_print(f"Reducing left side: {expr.left}")
+        expr.left = self.reduce_step(expr.left)
+        self.debug_print(f"Left side reduced to: {expr.left}")
+        
+        self.debug_print(f"Reducing right side: {expr.right}")
+        expr.right = self.reduce_step(expr.right)
+        self.debug_print(f"Right side reduced to: {expr.right}")
+
+        # Apply standard SKI reduction rules
+        if isinstance(expr.left, App):
+            if isinstance(expr.left.left, S):
+                # S x y z → x z (y z)
+                x = expr.left.right
+                y = expr.right
+                return App(App(x, y), App(y, y))
+            elif isinstance(expr.left.left, K):
+                # K x y → x
+                return expr.left.right
+        elif isinstance(expr.left, I):
+            # I x → x
+            return expr.right
+                
+        # Apply standard SKI reduction rules
+        if isinstance(expr.left, App):
+            if isinstance(expr.left.left, S):
+                # S x y z → x z (y z)
+                x = expr.left.right
+                y = expr.right
+                return App(App(x, y), App(y, y))
+            elif isinstance(expr.left.left, K):
+                # K x y → x
+                return expr.left.right
+        elif isinstance(expr.left, I):
+            # I x → x
+            return expr.right
+
+        return expr
+
+def execute_ast(ast: ASTNode, verbose: bool = False) -> Optional[Union[int, bool]]:
+    """Execute an AST using the SKI machine"""
+    machine = SKIMachine(verbose)
+    ski_expr = machine.convert_to_ski(ast)
+    if verbose:
+        print(f"SKI expression: {ski_expr}")
+    result = machine.reduce(ski_expr)
+    if isinstance(result, (Int, Bool)):
+        return result.value
+    return None

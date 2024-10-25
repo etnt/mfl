@@ -276,7 +276,6 @@ class FunctionalParser:
             else:
                 # No more input and no reductions possible
                 if len(self.stack) == 1 and isinstance(self.stack[0], tuple) and self.stack[0][0] == "Expr":
-                    print("\nSuccessfully parsed!")
                     return self.stack[0][1]
                 else:
                     raise ValueError(f"Parsing failed. Final stack: {self.stack}")

@@ -86,3 +86,13 @@ AST: let add = λx.λy.(x + y) in ((add 3) True)
 AST(raw): Let(Var("add"), Function(Var("x"), Function(Var("y"), BinOp("+", Var("x"), Var("y")))), Apply(Apply(Var("add"), Int(3)), Bool(True))) 
 Error during type checking: Type mismatch: int and bool
  ```
+
+Function composition, using the SKI machine:
+```bash
+python3 mfl.py -k "let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x+1) in let double = λx.(x*2) in ((compose double add1) 3)"
+Successfully parsed!
+AST: let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x + 1) in let double = λx.(x * 2) in (((compose double) add1) 3)
+AST(raw): Let(Var("compose"), Function(Var("f"), Function(Var("g"), Function(Var("x"), Apply(Var("f"), Apply(Var("g"), Var("x")))))), Let(Var("add1"), Function(Var("x"), BinOp("+", Var("x"), Int(1))), Let(Var("double"), Function(Var("x"), BinOp("*", Var("x"), Int(2))), Apply(Apply(Apply(Var("compose"), Var("double")), Var("add1")), Int(3)))))
+Inferred type: int
+SKI machine result: 8
+```
