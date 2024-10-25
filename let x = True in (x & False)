@@ -1,0 +1,18 @@
+
+## Structure
+
+The code is organized into several modules:
+
+- **mfl.py:** The main script that handles command-line arguments and runs the parser, type checker, and code generator.
+- **mfl_parser.py:** Implements a shift-reduce parser for MFL expressions.
+- **mfl_type_checker.py:** Implements a Hindley-Milner type inference system for MFL.
+- **mfl_core_erlang_generator.py:** Generates Core Erlang code from the AST.
+- **mfl_secd.py:** Implements a SECD machine for executing MFL expressions.
+
+## Contributing
+
+Contributions are welcome! Please feel free to open issues or submit pull requests.
+
+## License
+
+This project is licensed under the MIT License. See the LICENSE file for details.
