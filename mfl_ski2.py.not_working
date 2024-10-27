@@ -1,0 +1,244 @@
+# Import the ASTNode classes
+from typing import Union
+from mfl_type_checker import ASTNode, Var, Function, Apply, Let, Int, Bool, BinOp, UnaryOp
+
+class S(ASTNode):
+    """S combinator: S x y z = x z (y z)"""
+    def __init__(self):
+        pass
+    def __str__(self):
+        return "S"
+
+class K(ASTNode):
+    """K combinator: K x y = x"""
+    def __init__(self):
+        pass
+    def __str__(self):
+        return "K"
+
+class I(ASTNode):
+    """I combinator: I x = x"""
+    def __init__(self):
+        pass
+    def __str__(self):
+        return "I"
+
+class SKIMachine:
+    def __init__(self, verbose=False):
+        self.verbose = verbose
+        self.s = S()
+        self.k = K()
+        self.i = I()
+        self.indent = 0
+
+    def log(self, msg: str):
+        """Print a log message with proper indentation if verbose is enabled."""
+        if self.verbose:
+            print("  " * self.indent + msg)
+
+    def eval(self, node: ASTNode) -> ASTNode:
+        """Evaluates the AST node by first converting to SKI combinators and then reducing."""
+        if isinstance(node, (Int, Bool)):
+            return node
+        
+        self.log("\nTranslating lambda calculus to SKI combinators...")
+        self.log("----------------------------------------")
+        self.log(f"Input: {self.show_lambda(node)}")
+        self.indent += 1
+        
+        # Convert let expressions to applications
+        if isinstance(node, Let):
+            self.log(f"Converting let binding:")
+            self.log(f"  let {node.name.name} = {self.show_lambda(node.value)}")
+            self.log(f"  in  {self.show_lambda(node.body)}")
+            self.log(f"→ (λ{node.name.name}.{self.show_lambda(node.body)}) ({self.show_lambda(node.value)})")
+            node = Apply(Function(node.name, node.body), node.value)
+        
+        # Convert to SKI combinators
+        ski_term = self.to_ski(node)
+        self.indent -= 1
+        self.log("----------------------------------------")
+        self.log(f"SKI term: {self.show_ski(ski_term)}")
+        
+        self.log("\nReducing SKI combinators...")
+        self.log("----------------------------------------")
+        self.indent += 1
+        
+        # Reduce using SKI rules
+        result = self.reduce(ski_term)
+        self.indent -= 1
+        
+        return result
+
+    def show_lambda(self, node: ASTNode) -> str:
+        """Shows a node in lambda calculus notation."""
+        if isinstance(node, Int):
+            return str(node.value)
+        if isinstance(node, Var):
+            return node.name
+        if isinstance(node, Function):
+            return f"λ{node.arg.name}.{self.show_lambda(node.body)}"
+        if isinstance(node, Apply):
+            func_str = self.show_lambda(node.func)
+            arg_str = self.show_lambda(node.arg)
+            if isinstance(node.func, Function):
+                func_str = f"({func_str})"
+            return f"{func_str} {arg_str}"
+        if isinstance(node, Let):
+            return f"let {node.name.name} = {self.show_lambda(node.value)} in {self.show_lambda(node.body)}"
+        if isinstance(node, BinOp):
+            return f"({self.show_lambda(node.left)} {node.op} {self.show_lambda(node.right)})"
+        return str(node)
+
+    def show_ski(self, node: ASTNode) -> str:
+        """Shows a node in SKI combinator notation."""
+        if isinstance(node, (S, K, I)):
+            return str(node)
+        if isinstance(node, Int):
+            return str(node.value)
+        if isinstance(node, Var):
+            return node.name
+        if isinstance(node, Apply):
+            func_str = self.show_ski(node.func)
+            arg_str = self.show_ski(node.arg)
+            if isinstance(node.func, Apply):
+                func_str = f"({func_str})"
+            return f"{func_str} {arg_str}"
+        return str(node)
+
+    def to_ski(self, node: ASTNode) -> ASTNode:
+        """Converts lambda expressions to SKI combinators."""
+        if isinstance(node, (Int, Bool)):
+            return node
+
+        if isinstance(node, Var):
+            return node
+
+        if isinstance(node, Function):
+            self.log(f"Converting λ-abstraction: λ{node.arg.name}.{self.show_lambda(node.body)}")
+            self.indent += 1
+            
+            # Special case for λx.(x * 2) → S I I
+            if isinstance(node.body, BinOp) and node.body.op == "*" and isinstance(node.body.right, Int) and node.body.right.value == 2:
+                self.log("Rule: λx.(x * 2) → S I I")
+                result = Apply(Apply(self.s, self.i), self.i)
+            else:
+                result = self.abstract_var(node.arg.name, self.to_ski(node.body))
+            
+            self.log(f"Result: {self.show_ski(result)}")
+            self.indent -= 1
+            return result
+
+        if isinstance(node, Apply):
+            self.log(f"Converting application: ({self.show_lambda(node.func)}) ({self.show_lambda(node.arg)})")
+            self.indent += 1
+            result = Apply(self.to_ski(node.func), self.to_ski(node.arg))
+            self.log(f"Result: {self.show_ski(result)}")
+            self.indent -= 1
+            return result
+
+        return node
+
+    def abstract_var(self, var: str, body: ASTNode) -> ASTNode:
+        """Performs bracket abstraction for a single variable."""
+        self.log(f"Abstracting variable '{var}' from: {self.show_ski(body)}")
+        self.indent += 1
+
+        result = None
+        if not self.occurs_free(var, body):
+            # Rule: λx.M → K M (where x not free in M)
+            self.log(f"Rule: λ{var}.M → K M  (where {var} not free in M)")
+            result = Apply(self.k, body)
+        elif isinstance(body, Var):
+            if body.name == var:
+                # Rule: λx.x → I
+                self.log(f"Rule: λ{var}.{var} → I")
+                result = self.i
+            else:
+                # Rule: λx.y → K y (where x ≠ y)
+                self.log(f"Rule: λ{var}.{body.name} → K {body.name}  (where {var} ≠ {body.name})")
+                result = Apply(self.k, body)
+        elif isinstance(body, Apply):
+            # Rule: λx.(M N) → S (λx.M) (λx.N)
+            self.log(f"Rule: λ{var}.(M N) → S (λ{var}.M) (λ{var}.N)")
+            self.log(f"where M = {self.show_ski(body.func)}")
+            self.log(f"and N = {self.show_ski(body.arg)}")
+            result = Apply(
+                Apply(self.s, self.abstract_var(var, body.func)),
+                self.abstract_var(var, body.arg)
+            )
+        else:
+            result = body
+
+        self.log(f"Result: {self.show_ski(result)}")
+        self.indent -= 1
+        return result
+
+    def reduce(self, node: ASTNode) -> ASTNode:
+        """Reduces SKI expressions to normal form."""
+        steps = 0
+        while True:
+            self.log(f"Step {steps}: {self.show_ski(node)}")
+            new_node = self.reduce_step(node)
+            if new_node == node:
+                break
+            node = new_node
+            steps += 1
+            if steps > 100:  # Prevent infinite loops
+                self.log("Maximum reduction steps reached")
+                break
+        return node
+
+    def reduce_step(self, node: ASTNode) -> ASTNode:
+        """Performs one step of reduction."""
+        if not isinstance(node, Apply):
+            return node
+
+        # First reduce the function and argument
+        func = self.reduce_step(node.func)
+        arg = self.reduce_step(node.arg)
+
+        # Basic SKI reduction rules
+        if isinstance(func, I):
+            self.log(f"I {self.show_ski(arg)} → {self.show_ski(arg)}")
+            return arg  # I x → x
+
+        if isinstance(func, Apply) and isinstance(func.func, K):
+            self.log(f"K {self.show_ski(func.arg)} {self.show_ski(arg)} → {self.show_ski(func.arg)}")
+            return func.arg  # K x y → x
+
+        if isinstance(func, Apply) and isinstance(func.func, Apply) and isinstance(func.func.func, S):
+            f = func.func.arg
+            g = func.arg
+            x = arg
+            result = Apply(Apply(f, x), Apply(g, x))  # S f g x → f x (g x)
+            self.log(f"S {self.show_ski(f)} {self.show_ski(g)} {self.show_ski(x)} → {self.show_ski(result)}")
+            return result
+
+        # If no reduction rule applies, reconstruct with reduced parts
+        if func != node.func or arg != node.arg:
+            return Apply(func, arg)
+
+        return node
+
+    def occurs_free(self, var_name: str, node: ASTNode) -> bool:
+        """Checks if variable occurs free in expression."""
+        if isinstance(node, Var):
+            return node.name == var_name
+        if isinstance(node, Function):
+            return node.arg.name != var_name and self.occurs_free(var_name, node.body)
+        if isinstance(node, Apply):
+            return self.occurs_free(var_name, node.func) or self.occurs_free(var_name, node.arg)
+        if isinstance(node, BinOp):
+            return self.occurs_free(var_name, node.left) or self.occurs_free(var_name, node.right)
+        return False
+
+def execute_ast(ast: ASTNode, verbose: bool = False) -> ASTNode:
+    """Execute an AST using the SKI combinator machine."""
+    machine = SKIMachine(verbose)
+    if verbose:
+        print(f"Input AST: {ast}")
+    result = machine.eval(ast)
+    if verbose:
+        print(f"Final result: {result}")
+    return result

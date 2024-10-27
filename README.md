@@ -89,10 +89,14 @@ Error during type checking: Type mismatch: int and bool
 
 Function composition, using the SKI machine:
 ```bash
-python3 mfl.py -k "let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x+1) in let double = λx.(x*2) in ((compose double add1) 3)"
+python3 mfl.py -k  "let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x+1) in let double = λx.(x+x) in ((compose double add1) 2)"
 Successfully parsed!
-AST: let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x + 1) in let double = λx.(x * 2) in (((compose double) add1) 3)
-AST(raw): Let(Var("compose"), Function(Var("f"), Function(Var("g"), Function(Var("x"), Apply(Var("f"), Apply(Var("g"), Var("x")))))), Let(Var("add1"), Function(Var("x"), BinOp("+", Var("x"), Int(1))), Let(Var("double"), Function(Var("x"), BinOp("*", Var("x"), Int(2))), Apply(Apply(Apply(Var("compose"), Var("double")), Var("add1")), Int(3)))))
+AST: let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x + 1) in let double = λx.(x + x) in (((compose double) add1) 2)
+AST(raw): Let(Var("compose"), Function(Var("f"), Function(Var("g"), Function(Var("x"), Apply(Var("f"), Apply(Var("g"), Var("x")))))), Let(Var("add1"), Function(Var("x"), BinOp("+", Var("x"), Int(1))), Let(Var("double"), Function(Var("x"), BinOp("+", Var("x"), Var("x"))), Apply(Apply(Apply(Var("compose"), Var("double")), Var("add1")), Int(2)))))
 Inferred type: int
-SKI machine result: 8
+
+Translating to SKI combinators...
+SKI term: (((S ((S ((S (K S)) ((S ((S (K S)) ((S (K (S (K S)))) ((S ((S (K S)) ((S (K K)) ((S (K S)) ((S ((S (K S)) ((S (K K)) I))) (K I)))))) (K ((S (K K)) I)))))) (K (K (K 2)))))) (K (K ((S ((S (K +)) I)) I))))) (K ((S ((S (K +)) I)) (K 1)))) ((S ((S (K S)) ((S (K K)) ((S (K S)) ((S (K K)) I))))) (K ((S ((S (K S)) ((S (K K)) I))) (K I)))))
+SKI machine result: 6
 ```
+
