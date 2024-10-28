@@ -1,8 +1,8 @@
 """
 This module provides an interpreter for an Abstract Syntax Tree (AST) representing a simple functional language.
 
-The interpreter evaluates expressions in the AST, handling variables, functions, applications, and basic arithmetic operations.
-It supports curried functions and let expressions.
+The interpreter evaluates expressions in the AST, handling variables, functions, applications, basic arithmetic operations,
+and comparison operations.
 """
 from typing import Union, Dict
 from mfl_type_checker import ASTNode, Var, Function, Apply, Let, Int, Bool, BinOp, UnaryOp
@@ -50,9 +50,9 @@ class ASTInterpreter:
                 if isinstance(func.body, BinOp):
                     if isinstance(arg, Int) and isinstance(func.body.left, Int) and isinstance(func.body.right, Int): #Check if all are Ints
                         if func.body.op == "+":
-                            return Int(func.body.left.value + func.body.right.value) #Fixed: Use func.body.left.value and func.body.right.value
+                            return Int(func.body.left.value + func.body.right.value)
                         elif func.body.op == "*":
-                            return Int(func.body.left.value * func.body.right.value) #Fixed: Use func.body.left.value and func.body.right.value
+                            return Int(func.body.left.value * func.body.right.value)
 
                 # Regular function application
                 return self.eval(self.substitute(func.body, func.arg, arg))
@@ -70,14 +70,42 @@ class ASTInterpreter:
             left = self.eval(node.left)
             right = self.eval(node.right)
             if isinstance(left, Int) and isinstance(right, Int):
+                # Arithmetic operations
                 if node.op == "+":
                     return Int(left.value + right.value)
                 elif node.op == "*":
                     return Int(left.value * right.value)
+                elif node.op == "-":
+                    return Int(left.value - right.value)
+                elif node.op == "/":
+                    return Int(left.value // right.value)  # Using integer division
+                # Comparison operations
+                elif node.op == ">":
+                    return Bool(left.value > right.value)
+                elif node.op == "<":
+                    return Bool(left.value < right.value)
+                elif node.op == "==":
+                    return Bool(left.value == right.value)
+                elif node.op == "<=":
+                    return Bool(left.value <= right.value)
+                elif node.op == ">=":
+                    return Bool(left.value >= right.value)
+            # Boolean operations
+            elif isinstance(left, Bool) and isinstance(right, Bool):
+                if node.op == "&":
+                    return Bool(left.value and right.value)
+                elif node.op == "|":
+                    return Bool(left.value or right.value)
             return BinOp(node.op, left, right)
 
-        return node
+        # Unary operation handling
+        elif isinstance(node, UnaryOp):
+            operand = self.eval(node.operand)
+            if isinstance(operand, Bool) and node.op == "!":
+                return Bool(not operand.value)
+            return UnaryOp(node.op, operand)
 
+        return node
 
     def substitute(self, expr: ASTNode, var: Var, value: ASTNode) -> ASTNode:
         """
