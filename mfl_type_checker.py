@@ -326,6 +326,9 @@ class Int(ASTNode):
     """
     value: int
 
+    def __eq__(self, other):  # Overload the equality operator
+        return self.value == other
+
     def __repr__(self):
         return str(self.value)
 
@@ -336,6 +339,9 @@ class Bool(ASTNode):
     Example: True, False
     """
     value: bool
+
+    def __eq__(self, other):  # Overload the equality operator
+        return self.value == other
 
     def __repr__(self):
         return str(self.value)

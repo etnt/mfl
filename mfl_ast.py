@@ -1,76 +1,71 @@
-# Import the ASTNode classes (assuming they are implemented based on the document)
+"""
+This module provides an interpreter for an Abstract Syntax Tree (AST) representing a simple functional language.
+
+The interpreter evaluates expressions in the AST, handling variables, functions, applications, and basic arithmetic operations.
+It supports curried functions and let expressions.
+"""
 from typing import Union, Dict
 from mfl_type_checker import ASTNode, Var, Function, Apply, Let, Int, Bool, BinOp, UnaryOp
 
 
-# SKI-specific combinators
-class S(ASTNode):
-    def __init__(self, f=None, g=None):
-        self.f = f
-        self.g = g
-
-class K(ASTNode):
-    def __init__(self, x=None):
-        self.x = x
-
-class I(ASTNode):
+class ASTInterpreter:
+    """
+    An interpreter for the AST.  It maintains an environment to store variable bindings.
+    """
     def __init__(self):
-        pass
-
-# SKI Machine for evaluation
-class SKIMachine:
-    def __init__(self):
+        """Initializes the interpreter with an empty environment."""
         self.env: Dict[str, ASTNode] = {}
 
     def eval(self, node: ASTNode) -> ASTNode:
-        """Evaluates the AST node based on SKI rules."""
-        if isinstance(node, (Int, Bool, S, K, I)):
-            return node
+        """
+        Evaluates the given AST node.
 
+        Args:
+            node: The AST node to evaluate.
+
+        Returns:
+            The result of the evaluation.
+        """
+
+        # Variable lookup
         if isinstance(node, Var):
             return self.env.get(node.name, node)
 
+        # Function handling - functions are self-evaluating
         elif isinstance(node, Function):
             return node
 
+        # Function application
         elif isinstance(node, Apply):
             func = self.eval(node.func)
             arg = self.eval(node.arg)
 
             if isinstance(func, Function):
-                # Handle curried functions
+                # Curried function handling
                 if isinstance(func.body, Function):
-                    # First apply the outer function
                     result = self.substitute(func.body, func.arg, arg)
                     return result
 
-                # Handle primitive operations
+                # Primitive operation handling (addition and multiplication)
                 if isinstance(func.body, BinOp):
-                    if isinstance(arg, Int):
+                    if isinstance(arg, Int) and isinstance(func.body.left, Int) and isinstance(func.body.right, Int): #Check if all are Ints
                         if func.body.op == "+":
-                            if isinstance(func.body.left, Var) and func.body.left.name == func.arg.name:
-                                return Int(arg.value + func.body.right.value)
-                            elif isinstance(func.body.right, Var) and func.body.right.name == func.arg.name:
-                                return Int(func.body.left.value + arg.value)
+                            return Int(func.body.left.value + func.body.right.value) #Fixed: Use func.body.left.value and func.body.right.value
                         elif func.body.op == "*":
-                            if isinstance(func.body.left, Var) and func.body.left.name == func.arg.name:
-                                return Int(arg.value * func.body.right.value)
-                            elif isinstance(func.body.right, Var) and func.body.right.name == func.arg.name:
-                                return Int(func.body.left.value * arg.value)
+                            return Int(func.body.left.value * func.body.right.value) #Fixed: Use func.body.left.value and func.body.right.value
 
                 # Regular function application
                 return self.eval(self.substitute(func.body, func.arg, arg))
 
             return Apply(func, arg)
 
+        # Let expression handling
         elif isinstance(node, Let):
-            # Evaluate the value
             value = self.eval(node.value)
-            # Store in environment
             self.env[node.name.name] = value
-            # Evaluate the body
             return self.eval(node.body)
 
+        # Binary operation handling
         elif isinstance(node, BinOp):
             left = self.eval(node.left)
             right = self.eval(node.right)
@@ -83,8 +78,19 @@ class SKIMachine:
 
         return node
 
+
     def substitute(self, expr: ASTNode, var: Var, value: ASTNode) -> ASTNode:
-        """Substitutes value for var in expr."""
+        """
+        Substitutes 'value' for 'var' in 'expr'.  This is a recursive function that traverses the AST.
+
+        Args:
+            expr: The expression to substitute in.
+            var: The variable to replace.
+            value: The value to substitute.
+
+        Returns:
+            The expression with the substitution applied.
+        """
         if isinstance(expr, Var):
             return value if expr.name == var.name else expr
         elif isinstance(expr, Apply):
@@ -115,9 +121,19 @@ class SKIMachine:
             return Let(expr.name, new_value, new_body)
         return expr
 
+
 def execute_ast(ast: ASTNode, verbose: bool = False) -> ASTNode:
-    """Execute an AST using the SKI combinator machine."""
-    machine = SKIMachine()
+    """
+    Executes an AST using the AST interpreter.
+
+    Args:
+        ast: The AST to execute.
+        verbose: Whether to print verbose output.
+
+    Returns:
+        The result of the execution.
+    """
+    machine = ASTInterpreter()
     if verbose:
         print(f"Executing AST: {ast}")
     result = machine.eval(ast)
@@ -127,10 +143,27 @@ def execute_ast(ast: ASTNode, verbose: bool = False) -> ASTNode:
 
 if __name__ == "__main__":
     # Example usage (assuming AST tree is constructed accordingly):
-    ski_machine = SKIMachine()
-    result = ski_machine.eval(Apply(Function(Var("x"), Var("x")), Int(42)))
-    print(result.raw_structure())
-    print("\n")
+    ast_interpreter = ASTInterpreter()
 
-    result = ski_machine.eval(Let(Var("double"), Function(Var("x"), BinOp("*", Var("x"), Int(2))), Apply(Var("double"), Int(3))))
-    print(result.raw_structure())
+    # Example, identity function: λx.x applied to 42
+    result = ast_interpreter.eval(Apply(Function(Var("x"), Var("x")), Int(42)))
+    assert result == 42
+    print(result)
+
+    # Example, double function: λx.x*2 applied to 3
+    result = ast_interpreter.eval(Let(Var("double"), Function(Var("x"), BinOp("*", Var("x"), Int(2))), Apply(Var("double"), Int(3))))
+    assert result == 6
+    print(result)
+
+    # Example: let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x + 1) in let double = λx.(x + x) in (((compose double) add1) 4)
+    compose = Let(Var("compose"), 
+                 Function(Var("f"), Function(Var("g"), Function(Var("x"), 
+                         Apply(Var("f"), Apply(Var("g"), Var("x")))))),
+                 Let(Var("add1"), 
+                     Function(Var("x"), BinOp("+", Var("x"), Int(1))),
+                     Let(Var("double"), 
+                         Function(Var("x"), BinOp("+", Var("x"), Var("x"))),
+                         Apply(Apply(Apply(Var("compose"), Var("double")), Var("add1")), Int(4)))))
+    result = ast_interpreter.eval(compose)
+    assert result == 10
+    print(result)

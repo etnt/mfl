@@ -29,6 +29,15 @@ The SECD machine serves as one of the execution backends for the MFL language, a
 ### 4. MFL - Core Erlang Generator (mfl_core_erlang_generator.py)
 A code generator that translates parsed and type-checked expressions into Erlang Core language code. Supports lambda abstractions, function applications, let bindings, and arithmetic expressions.
 
+### 5. MFL - AST Interpreter (mfl_ast.py)
+A direct interpreter for the Abstract Syntax Tree (AST) that provides another execution backend for MFL expressions. The interpreter evaluates expressions by traversing the AST, handling:
+- Variable bindings and lookups
+- Function application with proper variable substitution
+- Let expressions for local variable definitions
+- Arithmetic operations
+- Curried functions
+This interpreter serves as a reference implementation, making it easier to understand how MFL expressions are evaluated without the complexity of compilation or virtual machine execution.
+
 ## Requirements
 
 The programs may require various Python packages. Install them using:
@@ -98,5 +107,3 @@ Inferred type: int
 Translating to SKI combinators...
 SKI term: (((S ((S ((S (K S)) ((S ((S (K S)) ((S (K (S (K S)))) ((S ((S (K S)) ((S (K K)) ((S (K S)) ((S ((S (K S)) ((S (K K)) I))) (K I)))))) (K ((S (K K)) I)))))) (K (K (K 2)))))) (K (K ((S ((S (K +)) I)) I))))) (K ((S ((S (K +)) I)) (K 1)))) ((S ((S (K S)) ((S (K K)) ((S (K S)) ((S (K K)) I))))) (K ((S ((S (K S)) ((S (K K)) I))) (K I)))))
 SKI machine result: 6
-```
-
