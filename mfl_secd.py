@@ -131,8 +131,14 @@ class SECDMachine:
 
         # Helper function to safely extract values from nested lists
         def extract_value(val):
-            if isinstance(val, list) and len(val) > 0:
-                return val[0] if len(val) == 1 else val[1]
+            if isinstance(val, list):
+                if len(val) == 0:
+                    return None
+                elif len(val) == 1:
+                    return extract_value(val[0])
+                else:
+                    # For pairs, we want the second element as it contains the actual value
+                    return extract_value(val[1])
             return val
 
         if op == "NIL":
@@ -146,7 +152,11 @@ class SECDMachine:
         elif op == "LD":
             # Load variable: Push value from environment onto stack
             i, j = arg  # Environment coordinates (frame, position)
-            self.stack.append(self.env[i][j])
+            value = self.env[i][j]
+            # If the value is a nested list, extract the actual value
+            if isinstance(value, list):
+                value = extract_value(value)
+            self.stack.append(value)
 
         elif op == "CONS":
             # Create pair: Pop two values and push (value1, value2)
@@ -171,13 +181,8 @@ class SECDMachine:
 
         elif op in ["ADD", "SUB", "MUL", "DIV", "EQ", "LE", "LT"]:
             # Arithmetic and comparison operations
-            b = self.stack.pop()
-            a = self.stack.pop()
-            # If we get a list, extract the actual value
-            if isinstance(a, list) and len(a) > 0:
-                a = a[0]
-            if isinstance(b, list) and len(b) > 0:
-                b = b[0]
+            b = extract_value(self.stack.pop())
+            a = extract_value(self.stack.pop())
             ops = {
                 "ADD": operator.add,
                 "SUB": operator.sub,
@@ -192,7 +197,7 @@ class SECDMachine:
         elif op == "SEL":
             # Conditional branch: Pop condition and select then/else branch
             then_branch, else_branch = arg
-            condition = self.stack.pop()
+            condition = extract_value(self.stack.pop())
             self.dump.append((self.stack.copy(), self.env, self.control))
             self.control = then_branch if condition else else_branch
 
@@ -206,46 +211,25 @@ class SECDMachine:
 
         elif op == "AP":
             # Apply function: Call closure with arguments
-            closure = self.stack.pop()
-            args = self.stack.pop()
+            closure = extract_value(self.stack.pop())
+            args = extract_value(self.stack.pop())
             
             if closure is None:
                 raise ValueError("Cannot apply None as a function")
                 
-            if not hasattr(closure, 'env') or not hasattr(closure, 'body'):
-                raise ValueError(f"Invalid closure object: {closure}")
+            if not isinstance(closure, Closure):
+                raise ValueError(f"Cannot apply non-closure value: {closure}")
             
             # Save current state
             self.dump.append((self.stack.copy(), self.env, self.control))
             
             # Set up new state for function execution
             # Extract argument value from the args list structure
-            if isinstance(args, list):
-                # Handle nested list structures by recursively extracting values
-                def extract_value(val):
-                    if isinstance(val, list):
-                        if len(val) == 0:
-                            return None
-                        elif len(val) == 1:
-                            return extract_value(val[0])
-                        else:
-                            return extract_value(val[1])  # Take second element for pairs
-                    return val
-                
-                arg_value = extract_value(args)
-            else:
-                arg_value = args
-
+            arg_value = extract_value(args)
+            
             # Create new environment frame with the argument
             new_frame = [arg_value]
             
-            # Get the closure from the environment if it's a reference
-            if isinstance(closure, list):
-                closure = extract_value(closure)
-                
-            if not isinstance(closure, Closure):
-                raise ValueError(f"Cannot apply non-closure value: {closure}")
-                
             self.stack = []
             self.env = [new_frame] + closure.env
             # Make sure we copy the closure body to avoid modifying it
@@ -253,7 +237,7 @@ class SECDMachine:
 
         elif op == "RET":
             # Return from function: Restore state and push result
-            result = self.stack.pop()
+            result = extract_value(self.stack.pop())
             self.stack, self.env, self.control = self.dump.pop()
             self.stack.append(result)
 
@@ -263,8 +247,8 @@ class SECDMachine:
 
         elif op == "RAP":
             # Recursive apply: Similar to AP but updates recursive environment
-            closure = self.stack.pop()
-            args = self.stack.pop()
+            closure = extract_value(self.stack.pop())
+            args = extract_value(self.stack.pop())
 
             self.dump.append((self.stack.copy(), self.env[1:], self.control))
             self.stack = []
@@ -273,7 +257,7 @@ class SECDMachine:
 
         elif op == "LET":
             # Create new environment frame with binding
-            value = self.stack.pop()
+            value = extract_value(self.stack.pop())
             bind_idx = arg
             new_frame = [None] * (bind_idx + 1)
             new_frame[bind_idx] = value
@@ -317,11 +301,6 @@ def compile_ast(ast, env_map=None, level=0, verbose=False):
         # Create new environment for function body
         new_env_map = env_map.copy()
         param_idx = 0
-
-        if verbose:
-            print(f"Function AST: {ast}")
-            print(f"Function AST dir: {dir(ast)}")
-            print(f"Function AST vars: {vars(ast)}")
         new_env_map[ast.arg.name] = (0, param_idx)
 
         # Shift existing variables one level up
@@ -338,9 +317,11 @@ def compile_ast(ast, env_map=None, level=0, verbose=False):
         # Compile function and argument
         func_code = compile_ast(ast.func, env_map, level)
         arg_code = compile_ast(ast.arg, env_map, level)
-        # 1. Load argument onto stack
-        # 2. Load function onto stack
-        # 3. Apply function to argument
+        # 1. Create empty list for argument
+        # 2. Load argument onto stack
+        # 3. Create pair (empty list, argument)
+        # 4. Load function onto stack
+        # 5. Apply function to argument pair
         return [
             "NIL",
             *arg_code,
@@ -350,26 +331,25 @@ def compile_ast(ast, env_map=None, level=0, verbose=False):
         ]
 
     elif isinstance(ast, Let):
-        # The Let AST node structure is: Let(name, value, body) where name is a Var node
-        var_name = ast.name.name  # First get the Var node, then its name attribute
-
         # Compile the value to be bound
         value_code = compile_ast(ast.value, env_map, level)
 
         # Create new environment for let body
         new_env_map = env_map.copy()
         bind_idx = len(env_map)
-        new_env_map[var_name] = (0, bind_idx)
+        new_env_map[ast.name.name] = (0, bind_idx)
+
+        # Shift existing variables one level up
+        for var in env_map:
+            lvl, idx = env_map[var]
+            new_env_map[var] = (lvl + 1, idx)
 
         # Compile body with new binding
         body_code = compile_ast(ast.body, new_env_map, level)
 
-        # 1. Compile the value to be bound
-        # 2. Create new environment frame with binding
-        # 3. Compile the body of the let expression with the new binding
         return [
             *value_code,
-            ("LET", bind_idx),  # Create new environment frame with binding
+            ("LET", bind_idx),
             *body_code
         ]
 
@@ -396,7 +376,7 @@ def compile_ast(ast, env_map=None, level=0, verbose=False):
 
     elif isinstance(ast, UnaryOp):
         if ast.op == "!":
-            expr_code = compile_ast(ast.expr)
+            expr_code = compile_ast(ast.expr, env_map, level)
             # Compile expression and apply NOT operation
             return [
                 *expr_code,
@@ -417,7 +397,8 @@ def execute_ast(ast, verbose=False):
     """
     # Compile AST to instructions
     instructions = compile_ast(ast, {}, 0, verbose)
-    print(f"SECD instructions: {instructions}")
+    if verbose:
+        print(f"SECD instructions: {instructions}")
 
     # Create and run SECD machine
     machine = SECDMachine(verbose)
