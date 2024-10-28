@@ -95,11 +95,17 @@ class SECDMachine:
         Returns:
             The final value on the stack after execution, or None if stack is empty
         """
-        self.control = control
+        self.control = control.copy()  # Make a copy to avoid modifying the original
 
         while self.control:
             instruction = self.control.pop(0)
             self.execute(instruction)
+            
+            # After executing all instructions, if we have a nested list result
+            # extract the actual value
+            if len(self.stack) == 1 and isinstance(self.stack[0], list):
+                while isinstance(self.stack[0], list) and len(self.stack[0]) > 1:
+                    self.stack[0] = self.stack[0][1]
 
         return self.stack[0] if self.stack else None
 
@@ -122,6 +128,12 @@ class SECDMachine:
         self.debug_print(f"Env before: {self.env}")
         self.debug_print(f"Control before: {self.control}")
         self.debug_print(f"Dump before: {self.dump}")
+
+        # Helper function to safely extract values from nested lists
+        def extract_value(val):
+            if isinstance(val, list) and len(val) > 0:
+                return val[0] if len(val) == 1 else val[1]
+            return val
 
         if op == "NIL":
             # Push empty list onto stack
@@ -196,17 +208,48 @@ class SECDMachine:
             # Apply function: Call closure with arguments
             closure = self.stack.pop()
             args = self.stack.pop()
-
+            
+            if closure is None:
+                raise ValueError("Cannot apply None as a function")
+                
+            if not hasattr(closure, 'env') or not hasattr(closure, 'body'):
+                raise ValueError(f"Invalid closure object: {closure}")
+            
             # Save current state
             self.dump.append((self.stack.copy(), self.env, self.control))
-
+            
             # Set up new state for function execution
             # Extract argument value from the args list structure
-            arg_value = args[1] if isinstance(args, list) and len(args) > 1 else args
-            new_frame = [arg_value]  # Create new environment frame with the argument
+            if isinstance(args, list):
+                # Handle nested list structures by recursively extracting values
+                def extract_value(val):
+                    if isinstance(val, list):
+                        if len(val) == 0:
+                            return None
+                        elif len(val) == 1:
+                            return extract_value(val[0])
+                        else:
+                            return extract_value(val[1])  # Take second element for pairs
+                    return val
+                
+                arg_value = extract_value(args)
+            else:
+                arg_value = args
+
+            # Create new environment frame with the argument
+            new_frame = [arg_value]
+            
+            # Get the closure from the environment if it's a reference
+            if isinstance(closure, list):
+                closure = extract_value(closure)
+                
+            if not isinstance(closure, Closure):
+                raise ValueError(f"Cannot apply non-closure value: {closure}")
+                
             self.stack = []
             self.env = [new_frame] + closure.env
-            self.control = closure.body
+            # Make sure we copy the closure body to avoid modifying it
+            self.control = closure.body.copy()
 
         elif op == "RET":
             # Return from function: Restore state and push result
