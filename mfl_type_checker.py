@@ -190,7 +190,7 @@ def infer_j(expr, ctx: Dict[str, Forall]) -> MonoType:
     5. Applications: Infer function and argument types,
                     ensure function type matches argument
     6. Let bindings: Infer value type, extend context, infer body
-    7. Binary operations: Handle both arithmetic and boolean operations
+    7. Binary operations: Handle arithmetic, boolean, and comparison operations
     8. Unary operations: Handle boolean not operation
     """
     result = fresh_tyvar()
@@ -250,7 +250,7 @@ def infer_j(expr, ctx: Dict[str, Forall]) -> MonoType:
         left_type = infer_j(expr.left, ctx)
         right_type = infer_j(expr.right, ctx)
 
-        # 2. Handle arithmetic vs boolean operations
+        # 2. Handle different types of operations
         if expr.op in ["+", "-", "*", "/"]:
             # Arithmetic operations require integers
             unify_j(left_type, IntType)
@@ -260,6 +260,11 @@ def infer_j(expr, ctx: Dict[str, Forall]) -> MonoType:
             # Boolean operations require booleans
             unify_j(left_type, BoolType)
             unify_j(right_type, BoolType)
+            unify_j(result, BoolType)
+        elif expr.op in [">", "<", "==", "<=", ">="]:
+            # Comparison operations require integers and return boolean
+            unify_j(left_type, IntType)
+            unify_j(right_type, IntType)
             unify_j(result, BoolType)
         else:
             raise Exception(f"Unknown binary operator: {expr.op}")
@@ -387,10 +392,10 @@ class Let(ASTNode):
 @dataclasses.dataclass
 class BinOp(ASTNode):
     """
-    Represents binary operations (+, -, *, /, &, |).
-    Example: x + y, a & b
+    Represents binary operations (+, -, *, /, &, |, >, <, ==, <=, >=).
+    Example: x + y, a & b, x > y
     """
-    op: str  # One of: '+', '-', '*', '/', '&', '|'
+    op: str  # One of: '+', '-', '*', '/', '&', '|', '>', '<', '==', '<=', '>='
     left: Any
     right: Any
 
@@ -563,6 +568,47 @@ def test_boolean():
     print(f"Raw AST structure: {expr4.raw_structure()}")
     print(f"Inferred type: {type4}\n")
 
+def test_comparison():
+    """
+    Test type inference for comparison operations.
+    All comparison operations should work with integers and produce booleans.
+    """
+    ctx = {}
+    # Test greater than
+    expr1 = BinOp(">", Int(5), Int(3))
+    type1 = infer_j(expr1, ctx)
+    print(f"Greater than: {expr1}")
+    print(f"Raw AST structure: {expr1.raw_structure()}")
+    print(f"Inferred type: {type1}\n")
+
+    # Test less than
+    expr2 = BinOp("<", Int(2), Int(7))
+    type2 = infer_j(expr2, ctx)
+    print(f"Less than: {expr2}")
+    print(f"Raw AST structure: {expr2.raw_structure()}")
+    print(f"Inferred type: {type2}\n")
+
+    # Test equality
+    expr3 = BinOp("==", Int(4), Int(4))
+    type3 = infer_j(expr3, ctx)
+    print(f"Equality: {expr3}")
+    print(f"Raw AST structure: {expr3.raw_structure()}")
+    print(f"Inferred type: {type3}\n")
+
+    # Test less than or equal
+    expr4 = BinOp("<=", Int(3), Int(3))
+    type4 = infer_j(expr4, ctx)
+    print(f"Less than or equal: {expr4}")
+    print(f"Raw AST structure: {expr4.raw_structure()}")
+    print(f"Inferred type: {type4}\n")
+
+    # Test greater than or equal
+    expr5 = BinOp(">=", Int(8), Int(5))
+    type5 = infer_j(expr5, ctx)
+    print(f"Greater than or equal: {expr5}")
+    print(f"Raw AST structure: {expr5.raw_structure()}")
+    print(f"Inferred type: {type5}\n")
+
 if __name__ == "__main__":
     # Run all test cases
     print("Type Inference Examples:\n")
@@ -574,3 +620,4 @@ if __name__ == "__main__":
     test_let_binding()
     test_arithmetic()
     test_boolean()
+    test_comparison()
