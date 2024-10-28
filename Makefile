@@ -37,3 +37,4 @@ install-requirements:
 test: 
 	./venv/bin/$(PYTHON) -m unittest ./test/test_ast_interpreter.py -v
 	./venv/bin/$(PYTHON) -m unittest ./test/test_parser.py -v
+	./venv/bin/$(PYTHON) -m unittest ./test/test_secd.py -v
