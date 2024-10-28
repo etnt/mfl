@@ -11,6 +11,7 @@ constructs including:
 - Let bindings
 - Arithmetic expressions
 - Boolean expressions
+- Comparison expressions
 
 Grammar Rules:
     Program -> Expr
@@ -22,6 +23,7 @@ Grammar Rules:
              | Let
              | ArithExpr
              | BoolExpr
+             | CompExpr
              | ( Expr )
 
     Lambda  -> λ IDENTIFIER . Expr
@@ -34,6 +36,11 @@ Grammar Rules:
     BoolExpr -> Expr & Expr
               | Expr | Expr
               | ! Expr
+    CompExpr -> Expr > Expr
+              | Expr < Expr
+              | Expr == Expr
+              | Expr <= Expr
+              | Expr >= Expr
 
 Example Usage:
     from functional_parser import FunctionalParser
@@ -69,12 +76,40 @@ class FunctionalParser:
         Convert input string into tokens.
         Handles special characters and whitespace.
         """
-        # Replace special characters with padded spaces
-        for char in "()λ.=+*/-&|!":
-            input_str = input_str.replace(char, f" {char} ")
+        tokens = []
+        i = 0
+        while i < len(input_str):
+            # Skip whitespace
+            if input_str[i].isspace():
+                i += 1
+                continue
 
-        # Split and filter out empty tokens
-        return [token for token in input_str.split() if token]
+            # Handle two-character operators
+            if i < len(input_str) - 1:
+                two_chars = input_str[i:i+2]
+                if two_chars in ["==", "<=", ">="]:
+                    tokens.append(two_chars)
+                    i += 2
+                    continue
+
+            # Handle single-character operators and other special characters
+            if input_str[i] in "()λ.=+*/-&|!<>":
+                tokens.append(input_str[i])
+                i += 1
+                continue
+
+            # Handle words (identifiers, keywords, etc.)
+            if input_str[i].isalnum():
+                word = ""
+                while i < len(input_str) and (input_str[i].isalnum() or input_str[i] == '_'):
+                    word += input_str[i]
+                    i += 1
+                tokens.append(word)
+                continue
+
+            i += 1
+
+        return [token for token in tokens if token]
 
     def try_terminal_reduction(self) -> bool:
         """
@@ -215,10 +250,10 @@ class FunctionalParser:
                 self.debug_print(f"Reduced parenthesized expression: ({expr})")
                 return True
 
-        # Try to reduce arithmetic and boolean expressions
+        # Try to reduce arithmetic, boolean, and comparison expressions
         if len(self.stack) >= 3:
             if (isinstance(self.stack[-3], tuple) and self.stack[-3][0] == "Expr" and
-                self.stack[-2] in ["+", "-", "*", "/", "&", "|"] and
+                self.stack[-2] in ["+", "-", "*", "/", "&", "|", ">", "<", "==", "<=", ">="] and
                 isinstance(self.stack[-1], tuple) and self.stack[-1][0] == "Expr"):
 
                 _, left = self.stack[-3]
