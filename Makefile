@@ -33,5 +33,7 @@ add:
 install-requirements: 
 	$(PIP) install -r $(REQUIREMENTS)
 
-test: venv
-	./venv/bin/$(PYTHON) -m unittest some_tests.py
+.PHONY: test
+test: 
+	./venv/bin/$(PYTHON) -m unittest ./test/test_ast_interpreter.py -v
+	./venv/bin/$(PYTHON) -m unittest ./test/test_parser.py -v
