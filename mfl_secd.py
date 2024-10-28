@@ -365,9 +365,22 @@ def compile_ast(ast, env_map=None, level=0, verbose=False):
             "*": "MUL",
             "/": "DIV",
             "&": "AND",
-            "|": "OR"
+            "|": "OR",
+            "==": "EQ",
+            "<=": "LE",
+            "<": "LT",
+            ">": "LT",  # x > y is equivalent to y < x, so swap operands
+            ">=": "LE"  # x >= y is equivalent to y <= x, so swap operands
         }
 
+        # For > and >=, we need to swap the operands
+        if ast.op in [">", ">="]:
+            return [
+                *right_code,  # Note the swap here
+                *left_code,
+                op_map[ast.op]
+            ]
+        
         return [
             *left_code,
             *right_code,

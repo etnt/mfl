@@ -56,8 +56,10 @@ BinOp(op: str, left: ASTNode, right: ASTNode)
 Supported operators:
 - Arithmetic: `+`, `-`, `*`, `/`
 - Boolean: `&`, `|`
+- Comparison: `>`, `<`, `==`, `<=`, `>=`
 
 Example: `x + y` → `BinOp("+", Var("x"), Var("y"))`
+Example: `x > y` → `BinOp(">", Var("x"), Var("y"))`
 
 ### UnaryOp
 Represents unary operations
