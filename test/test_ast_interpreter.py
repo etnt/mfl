@@ -12,6 +12,7 @@ class TestASTInterpreter(unittest.TestCase):
 
     def test_greater_than(self):
         # Test 5 > 3 (should be True)
+        #
         ast = BinOp(">", Int(5), Int(3))
         result = self.interpreter.eval(ast)
         self.assertIsInstance(result, Bool)
