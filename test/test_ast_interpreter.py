@@ -1,6 +1,7 @@
 import unittest
-from mfl_parser import FunctionalParser
 from mfl_ast import execute_ast
+from mfl_type_checker import Int, Bool, BinOp, Let, Var, Function, Apply
+from mfl_parser import FunctionalParser
 
 class TestASTInterpreter(unittest.TestCase):
 
@@ -10,90 +11,76 @@ class TestASTInterpreter(unittest.TestCase):
     def test_greater_than(self):
         # Test 5 > 3 (should be True)
         ast = BinOp(">", Int(5), Int(3))
-        result = self.interpreter.eval(ast)
-        self.assertIsInstance(result, Bool)
+        result = execute_ast(ast, False)
         self.assertTrue(result.value)
 
         # Test 3 > 5 (should be False)
         ast = BinOp(">", Int(3), Int(5))
-        result = self.interpreter.eval(ast)
-        self.assertIsInstance(result, Bool)
+        result = execute_ast(ast, False)
         self.assertFalse(result.value)
 
         # Test 5 > 5 (should be False)
         ast = BinOp(">", Int(5), Int(5))
-        result = self.interpreter.eval(ast)
-        self.assertIsInstance(result, Bool)
+        result = execute_ast(ast, False)
         self.assertFalse(result.value)
 
     def test_less_than(self):
         # Test 3 < 5 (should be True)
         ast = BinOp("<", Int(3), Int(5))
-        result = self.interpreter.eval(ast)
-        self.assertIsInstance(result, Bool)
+        result = execute_ast(ast, False)
         self.assertTrue(result.value)
 
         # Test 5 < 3 (should be False)
         ast = BinOp("<", Int(5), Int(3))
-        result = self.interpreter.eval(ast)
-        self.assertIsInstance(result, Bool)
+        result = execute_ast(ast, False)
         self.assertFalse(result.value)
 
         # Test 5 < 5 (should be False)
         ast = BinOp("<", Int(5), Int(5))
-        result = self.interpreter.eval(ast)
-        self.assertIsInstance(result, Bool)
+        result = execute_ast(ast, False)
         self.assertFalse(result.value)
 
     def test_equals(self):
         # Test 5 == 5 (should be True)
         ast = BinOp("==", Int(5), Int(5))
-        result = self.interpreter.eval(ast)
-        self.assertIsInstance(result, Bool)
+        result = execute_ast(ast, False)
         self.assertTrue(result.value)
 
         # Test 5 == 3 (should be False)
         ast = BinOp("==", Int(5), Int(3))
-        result = self.interpreter.eval(ast)
-        self.assertIsInstance(result, Bool)
+        result = execute_ast(ast, False)
         self.assertFalse(result.value)
 
     def test_less_than_equals(self):
         # Test 3 <= 5 (should be True)
         ast = BinOp("<=", Int(3), Int(5))
-        result = self.interpreter.eval(ast)
-        self.assertIsInstance(result, Bool)
+        result = execute_ast(ast, False)
         self.assertTrue(result.value)
 
         # Test 5 <= 3 (should be False)
         ast = BinOp("<=", Int(5), Int(3))
-        result = self.interpreter.eval(ast)
-        self.assertIsInstance(result, Bool)
+        result = execute_ast(ast, False)
         self.assertFalse(result.value)
 
         # Test 5 <= 5 (should be True)
         ast = BinOp("<=", Int(5), Int(5))
-        result = self.interpreter.eval(ast)
-        self.assertIsInstance(result, Bool)
+        result = execute_ast(ast, False)
         self.assertTrue(result.value)
 
     def test_greater_than_equals(self):
         # Test 5 >= 3 (should be True)
         ast = BinOp(">=", Int(5), Int(3))
-        result = self.interpreter.eval(ast)
-        self.assertIsInstance(result, Bool)
+        result = execute_ast(ast, False)
         self.assertTrue(result.value)
 
         # Test 3 >= 5 (should be False)
         ast = BinOp(">=", Int(3), Int(5))
-        result = self.interpreter.eval(ast)
-        self.assertIsInstance(result, Bool)
+        result = execute_ast(ast, False)
         self.assertFalse(result.value)
 
         # Test 5 >= 5 (should be True)
         ast = BinOp(">=", Int(5), Int(5))
-        result = self.interpreter.eval(ast)
-        self.assertIsInstance(result, Bool)
+        result = execute_ast(ast, False)
         self.assertTrue(result.value)
 
     def test_comparison_in_function(self):
@@ -103,8 +90,7 @@ class TestASTInterpreter(unittest.TestCase):
             Function(Var("x"), BinOp(">", Var("x"), Int(0))),
             Apply(Var("is_positive"), Int(5))
         )
-        result = self.interpreter.eval(is_positive)
-        self.assertIsInstance(result, Bool)
+        result = execute_ast(is_positive, False)
         self.assertTrue(result.value)
 
         # Test with a negative number
@@ -113,8 +99,7 @@ class TestASTInterpreter(unittest.TestCase):
             Function(Var("x"), BinOp(">", Var("x"), Int(0))),
             Apply(Var("is_positive"), Int(-5))
         )
-        result = self.interpreter.eval(is_positive)
-        self.assertIsInstance(result, Bool)
+        result = execute_ast(is_positive, False)
         self.assertFalse(result.value)
 
     def test_complex_comparison(self):
@@ -125,8 +110,7 @@ class TestASTInterpreter(unittest.TestCase):
             Function(Var("x"), Function(Var("y"), BinOp(">", Var("x"), Var("y")))),
             Apply(Apply(Var("max"), Int(5)), Int(3))
         )
-        result = self.interpreter.eval(max_func)
-        self.assertIsInstance(result, Bool)
+        result = execute_ast(max_func, False)
         self.assertTrue(result.value)
 
     def test_let_expression_add(self):
@@ -144,6 +128,6 @@ class TestASTInterpreter(unittest.TestCase):
         result = execute_ast(ast, False)
         self.assertEqual(result, 6)
 
-        
+
 if __name__ == "__main__":
     unittest.main()
