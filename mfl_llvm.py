@@ -14,6 +14,7 @@ Key features implemented:
 - Let bindings
 - Basic arithmetic and comparison operations
 """
+
 import subprocess
 from typing import Any, Dict, List, Optional, Tuple
 from mfl_type_checker import (
@@ -33,7 +34,7 @@ def find_target_triple() -> str:
         for line in output_lines:
             if "Target:" in line:
                 target_triple = line.split(": ")[1].strip()
-                print(f'target triple = "{target_triple}"')
+                #print(f'target triple = "{target_triple}"')
                 return target_triple
     except subprocess.CalledProcessError as e:
         print(f"Error executing clang: {e}")
@@ -45,15 +46,21 @@ class LLVMGenerator:
     Generates LLVM IR code from AST nodes.
     Implements the visitor pattern to traverse the AST.
     """
-
-    def __init__(self):
+    
+    def __init__(self, verbose=False):
         self.fresh_counter = 0
         self.functions: Dict[str, str] = {}  # Maps function names to their types
         self.variables: Dict[str, str] = {}  # Maps variable names to their LLVM registers
         self.current_function: Optional[str] = None
         self.declarations = []
         self.definitions = []
+        self.verbose = verbose
         self._init_runtime()
+
+    def debug(self, msg: str):
+        """Print debug message if verbose mode is enabled"""
+        if self.verbose:
+            print(f"LLVM: {msg}")
 
     def _init_runtime(self):
         """Initialize LLVM IR with necessary declarations"""
@@ -78,18 +85,23 @@ class LLVMGenerator:
     def fresh_var(self, prefix: str = "") -> str:
         """Generate a fresh LLVM register name"""
         self.fresh_counter += 1
-        return f"%{prefix}_{self.fresh_counter}"
+        name = f"%{prefix}_{self.fresh_counter}"
+        self.debug(f"Generated fresh variable: {name}")
+        return name
 
     def fresh_label(self, prefix: str = "label") -> str:
         """Generate a fresh label name"""
         self.fresh_counter += 1
-        return f"{prefix}_{self.fresh_counter}"
+        name = f"{prefix}_{self.fresh_counter}"
+        self.debug(f"Generated fresh label: {name}")
+        return name
 
     def generate(self, node: Any, type_info: MonoType = None) -> Tuple[str, str]:
         """
         Generate LLVM IR code for an AST node.
         Returns (register_name, type) tuple.
         """
+        self.debug(f"Generating code for node type: {type(node).__name__}")
         if isinstance(node, Int):
             return self.generate_int(node)
         elif isinstance(node, Bool):
@@ -109,12 +121,14 @@ class LLVMGenerator:
 
     def generate_int(self, node: Int) -> Tuple[str, str]:
         """Generate LLVM IR for integer literal"""
+        self.debug(f"Generating integer literal: {node.value}")
         reg = self.fresh_var("int")
         self.definitions.append(f"    {reg} = add i32 0, {node.value}")
         return reg, "i32"
 
     def generate_bool(self, node: Bool) -> Tuple[str, str]:
         """Generate LLVM IR for boolean literal"""
+        self.debug(f"Generating boolean literal: {node.value}")
         reg = self.fresh_var("bool")
         value = 1 if node.value else 0
         self.definitions.append(f"    {reg} = add i1 0, {value}")
@@ -122,19 +136,23 @@ class LLVMGenerator:
 
     def generate_var(self, node: Var) -> Tuple[str, str]:
         """Generate LLVM IR for variable reference"""
+        self.debug(f"Generating variable reference: {node.name}")
         if node.name in self.variables:
             load_reg = self.fresh_var("load")
             var_type = self.variables[node.name][1]
             if var_type == "function":
+                self.debug(f"Loading function pointer: {node.name}")
                 self.definitions.append(f"    {load_reg} = load i32 (i32)*, i32 (i32)** {self.variables[node.name][0]}")
                 return load_reg, "function"
             else:
+                self.debug(f"Loading variable value: {node.name}")
                 self.definitions.append(f"    {load_reg} = load i32, i32* {self.variables[node.name][0]}")
                 return load_reg, "i32"
         raise ValueError(f"Undefined variable: {node.name}")
 
     def generate_function(self, node: Function) -> Tuple[str, str]:
         """Generate LLVM IR for function definition"""
+        self.debug(f"Generating function with argument: {node.arg.name}")
         func_name = f"@func_{self.fresh_counter}"
         self.fresh_counter += 1
 
@@ -160,6 +178,7 @@ class LLVMGenerator:
         self.variables[node.arg.name] = (arg_ptr, "i32")
 
         # Generate function body
+        self.debug("Generating function body")
         body_reg, body_type = self.generate(node.body)
 
         # Return the result
@@ -180,40 +199,48 @@ class LLVMGenerator:
         self.declarations.append("")  # Add blank line before function
         self.declarations.extend(func_def.split("\n"))
 
+        self.debug(f"Completed function definition: {func_name}")
         return func_name, "function"
 
     def generate_apply(self, node: Apply) -> Tuple[str, str]:
         """Generate LLVM IR for function application"""
+        self.debug("Generating function application")
         func_reg, func_type = self.generate(node.func)
         arg_reg, arg_type = self.generate(node.arg)
 
         result_reg = self.fresh_var("call")
+        self.debug(f"Calling function {func_reg} with argument {arg_reg}")
         self.definitions.append(f"    {result_reg} = call i32 {func_reg}(i32 {arg_reg})")
         return result_reg, "i32"
 
     def generate_let(self, node: Let) -> Tuple[str, str]:
         """Generate LLVM IR for let binding"""
+        self.debug(f"Generating let binding for: {node.name.name}")
         value_reg, value_type = self.generate(node.value)
 
         # Allocate space for the variable
         if value_type == "function":
+            self.debug(f"Storing function pointer in: {node.name.name}")
             ptr_reg = self.fresh_var(f"{node.name.name}_ptr")
             self.definitions.append(f"    {ptr_reg} = alloca i32 (i32)*")
             self.definitions.append(f"    store i32 (i32)* {value_reg}, i32 (i32)** {ptr_reg}")
             self.variables[node.name.name] = (ptr_reg, "function")
         else:
+            self.debug(f"Storing value in: {node.name.name}")
             ptr_reg = self.fresh_var(f"{node.name.name}_ptr")
             self.definitions.append(f"    {ptr_reg} = alloca i32")
             self.definitions.append(f"    store i32 {value_reg}, i32* {ptr_reg}")
             self.variables[node.name.name] = (ptr_reg, "i32")
 
         # Generate body with new variable in scope
+        self.debug("Generating let body")
         body_reg, body_type = self.generate(node.body)
 
         return body_reg, body_type
 
     def generate_binop(self, node: BinOp) -> Tuple[str, str]:
         """Generate LLVM IR for binary operations"""
+        self.debug(f"Generating binary operation: {node.op}")
         left_reg, left_type = self.generate(node.left)
         right_reg, right_type = self.generate(node.right)
 
@@ -237,9 +264,11 @@ class LLVMGenerator:
         if node.op in op_map:
             llvm_op = op_map[node.op]
             if llvm_op.startswith("icmp"):
+                self.debug(f"Generating comparison: {llvm_op}")
                 self.definitions.append(f"    {result_reg} = {llvm_op} i32 {left_reg}, {right_reg}")
                 return result_reg, "i1"
             else:
+                self.debug(f"Generating arithmetic: {llvm_op}")
                 self.definitions.append(f"    {result_reg} = {llvm_op} i32 {left_reg}, {right_reg}")
                 return result_reg, "i32"
         else:
@@ -247,6 +276,7 @@ class LLVMGenerator:
 
     def generate_main(self, ast: Any) -> str:
         """Generate the main function that wraps the expression"""
+        self.debug("Generating main function")
         self.definitions = []
         self.definitions.extend([
             "define i32 @main() {",
@@ -258,10 +288,12 @@ class LLVMGenerator:
 
         # Print the result
         if result_type == "i32":
+            self.debug("Generating integer print")
             self.definitions.extend([
                 f"    call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.str.int, i64 0, i64 0), i32 {result_reg})"
             ])
         elif result_type == "i1":
+            self.debug("Generating boolean print")
             # Convert boolean to string pointer
             true_label = self.fresh_label("true")
             false_label = self.fresh_label("false")
@@ -289,12 +321,13 @@ class LLVMGenerator:
         self.declarations.append("")  # Add blank line before main
         self.declarations.extend(self.definitions)
 
+        self.debug("Code generation complete")
         return "\n".join(self.declarations)
 
-def generate_llvm(ast: Any, type_info: MonoType = None) -> str:
+def generate_llvm(ast: Any, verbose: bool = False) -> str:
     """
     Generate LLVM IR code from an AST.
     Entry point for code generation.
     """
-    generator = LLVMGenerator()
+    generator = LLVMGenerator(verbose)
     return generator.generate_main(ast)

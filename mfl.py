@@ -92,7 +92,7 @@ def main():
                 elif args.llvm:
                     try:
                         # Generate LLVM IR code
-                        llvm_ir = generate_llvm(ast, expr_type)
+                        llvm_ir = generate_llvm(ast, args.backend_verbose)
                         if args.verbose:
                             print("\nGenerated LLVM IR code:")
                             print(llvm_ir)
