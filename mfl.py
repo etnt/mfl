@@ -28,7 +28,7 @@ def main():
     arg_parser.add_argument('expression', nargs='?', help='Expression to parse and type-check')
     arg_parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output from all modules')
     arg_parser.add_argument('-b', '--backend-verbose', action='store_true', help='Enable verbose output from backend')
-    arg_parser.add_argument('-o', '--output', default="mfl.core", help='Output file name')
+    arg_parser.add_argument('-o', '--output', default="mfl", help='Output file name (without suffix)')
     arg_parser.add_argument('-s', '--secd', action='store_true', help='Execute using SECD machine')
     arg_parser.add_argument('-k', '--ski', action='store_true', help='Execute using SKI combinator machine')
     arg_parser.add_argument('-a', '--ast', action='store_true', help='Execute using AST interpreter')
@@ -97,16 +97,26 @@ def main():
                             print("\nGenerated LLVM IR code:")
                             print(llvm_ir)
                         # Write the generated code to file
-                        output_file = "mfl.ll"
-                        with open(output_file, "w") as f:
+                        ll_file = "mfl.ll"
+                        with open(ll_file, "w") as f:
                             f.write(llvm_ir)
-                        print(f"LLVM IR written to: {output_file}")
-                        print("To compile and run:")
-                        print(f"  llc {output_file} -o mfl.s")
-                        print(f"  gcc mfl.s -o mfl")
-                        print(f"  ./mfl")
+                        print(f"LLVM IR written to: {ll_file}")
+                        print(f"Compiling as: clang -o {args.output} {ll_file}")
+                        try:
+                            # Use shlex.quote to safely handle filenames with spaces or special characters
+                            command = shlex.split(f"clang -o {args.output} {shlex.quote(ll_file)}")
+                            result = subprocess.run(command, capture_output=True, text=True, check=True)
+                            print("Compilation successful!")
+                            print(result.stdout)  # Print compilation output (if any)
+                        except subprocess.CalledProcessError as e:
+                            print(f"Error compiling with clang: {e}")
+                            print(f"Return code: {e.returncode}")
+                            print(f"Stdout: {e.stdout}")
+                            print(f"Stderr: {e.stderr}")
+                        except FileNotFoundError:
+                            print("Error: clang command not found. Make sure it's in your PATH.")
                     except Exception as e:
-                        print(f"Error during LLVM IR generation: {str(e)}")
+                        print(f"Error during code generation: {str(e)}")
                 else:
                     try:
                         # Generate Core Erlang code
@@ -115,12 +125,14 @@ def main():
                             print("\nGenerated Core Erlang code:")
                             print(core_erlang)
                         # Write the generated code to file
-                        with open(args.output, "w") as f:
+                        core_file = f"{args.output}.core"
+                        with open(core_file, "w") as f:
                             f.write(core_erlang)
-                        print(f"Output written to: {args.output} ,compiling to BEAM as: erlc +from_core {args.output}")
+                        print(f"Output written to: {core_file}")
+                        print(f"Compiling to BEAM as: erlc +from_core {core_file}")
                         try:
                             # Use shlex.quote to safely handle filenames with spaces or special characters
-                            command = shlex.split(f"erlc +from_core {shlex.quote(args.output)}")
+                            command = shlex.split(f"erlc +from_core {shlex.quote(core_file)}")
                             result = subprocess.run(command, capture_output=True, text=True, check=True)
                             print("Compilation successful!")
                             print(result.stdout)  # Print compilation output (if any)
