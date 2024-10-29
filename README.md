@@ -13,6 +13,7 @@ MFL is just a learning project, playing around with typical concepts of function
 - **Type inference:** The language uses a Hindley-Milner type inference system to automatically deduce the types of expressions.
 - **Core Erlang generation:** MFL expressions can be compiled into Core Erlang, a functional intermediate language used in the Erlang compiler pipeline, and then further compiled into BEAM bytecode using the Erlang compiler.
 - **SECD machine execution:** MFL expressions can also be executed directly using a SECD machine, a virtual machine designed for evaluating lambda calculus expressions.
+- **LLVM IR generation:** MFL expressions can be compiled into LLVM IR, allowing for compilation to native machine code.
 
 ## Programs
 
@@ -29,7 +30,10 @@ The SECD machine serves as one of the execution backends for the MFL language, a
 ### 4. MFL - Core Erlang Generator (mfl_core_erlang_generator.py)
 A code generator that translates parsed and type-checked expressions into Erlang Core language code. Supports lambda abstractions, function applications, let bindings, and arithmetic expressions.
 
-### 5. MFL - AST Interpreter (mfl_ast.py)
+### 5. MFL - LLVM IR Generator (mfl_llvm.py)
+A code generator that translates parsed and type-checked expressions into LLVM IR.  This allows for compilation to native machine code using the LLVM compiler toolchain (clang).
+
+### 6. MFL - AST Interpreter (mfl_ast.py)
 A direct interpreter for the Abstract Syntax Tree (AST) that provides another execution backend for MFL expressions. The interpreter evaluates expressions by traversing the AST, handling:
 - Variable bindings and lookups
 - Function application with proper variable substitution
@@ -56,7 +60,7 @@ source ./venv/bin/activate
 
 The `mfl.py` can be run with an argument or without, where in the latter case it will run the default test cases for the parser and type checker.
 It also takes a `-v`/`--verbose` flag to print the parsing / code generation steps. By default the code will be compiled down to BEAM code,
-via Erlang Core; with the `-s`/`--secd` flag it will instead be executed in the SECD machine.
+via Erlang Core; with the `-s`/`--secd` flag it will instead be executed in the SECD machine; and with the `--llvm` flag it will generate LLVM IR.
 
 ```bash
 ❯ python3 mfl.py --help
@@ -77,6 +81,7 @@ options:
   -k, --ski             Execute using SKI combinator machine
   -a, --ast             Execute using AST interpreter
   -g, --gmachine        Execute using G-machine
+  -l, --llvm            Generate LLVM IR and compile to binary code 
 ```
 
 Note: The SKI and G-machine backends are not working atm.
@@ -103,7 +108,7 @@ Another example, this time running our code in the SECD machine:
 ```bash
 ❯ ./venv/bin/python3 mfl.py -s "let add = λx.λy.(x+y) in (add 3 4)"
 Successfully parsed!
-AST: let add = λx.λy.(x + y) in ((add 3) 4)
+AST: let add = λx.λy.(x+y) in ((add 3) 4)
 AST(raw): Let(Var("add"), Function(Var("x"), Function(Var("y"), BinOp("+", Var("x"), Var("y")))), Apply(Apply(Var("add"), Int(3)), Int(4)))
 Inferred type: int
 SECD instructions: [('LDF', [('LDF', [('LD', (1, 0)), ('LD', (0, 0)), 'ADD', 'RET']), 'RET']), ('LET', 0), 'NIL', ('LDC', 4), 'CONS', 'NIL', ('LDC', 3), 'CONS', ('LD', (0, 0)), 'AP', 'AP']
@@ -143,3 +148,19 @@ Translating to SKI combinators...
 SKI term: (((S ((S ((S (K S)) ((S ((S (K S)) ((S (K (S (K S)))) ((S ((S (K S)) ((S (K K)) ((S (K S)) ((S ((S (K S)) ((S (K K)) I))) (K I)))))) (K ((S (K K)) I)))))) (K (K (K 2)))))) (K (K ((S ((S (K +)) I)) I))))) (K ((S ((S (K +)) I)) (K 1)))) ((S ((S (K S)) ((S (K K)) ((S (K S)) ((S (K K)) I))))) (K ((S ((S (K S)) ((S (K K)) I))) (K I)))))
 SKI machine result: 6
  ```
+
+Example, using the LLVM backend:
+
+```bash
+❯ python3 mfl.py -o double -l "let double = λx.(x*2) in (double 21)"
+Successfully parsed! 
+AST: let double = λx.(x * 2) in (double 21) 
+AST(raw): Let(Var("double"), Function(Var("x"), BinOp("*", Var("x"), Int(2))), Apply(Var("double"), Int(21))) 
+Inferred type: int  
+LLVM IR written to: mfl.ll 
+Compiling as: clang -o double mfl.ll 
+Compilation successful!
+
+❯ ./double
+42
+```
