@@ -12,8 +12,9 @@ class ASTInterpreter:
     """
     An interpreter for the AST.  It maintains an environment to store variable bindings.
     """
-    def __init__(self):
+    def __init__(self, verbose: bool = False):
         """Initializes the interpreter with an empty environment."""
+        self.verbose = verbose
         self.env: Dict[str, ASTNode] = {}
 
     def eval(self, node: ASTNode) -> ASTNode:
@@ -26,85 +27,132 @@ class ASTInterpreter:
         Returns:
             The result of the evaluation.
         """
+        if self.verbose:
+            print(f"Evaluating {type(node).__name__}: {node}")
 
         # Variable lookup
         if isinstance(node, Var):
-            return self.env.get(node.name, node)
+            if self.verbose:
+                print(f"Looking up variable {node.name}")
+            result = self.env.get(node.name, node)
+            if self.verbose:
+                print(f"Variable lookup result: {result}")
+            return result
 
         # Function handling - functions are self-evaluating
         elif isinstance(node, Function):
+            if self.verbose:
+                print(f"Function is self-evaluating: {node}")
             return node
 
         # Function application
         elif isinstance(node, Apply):
+            if self.verbose:
+                print(f"Evaluating function: {node.func}")
             func = self.eval(node.func)
+            if self.verbose:
+                print(f"Evaluating argument: {node.arg}")
             arg = self.eval(node.arg)
 
             if isinstance(func, Function):
                 # Curried function handling
                 if isinstance(func.body, Function):
                     result = self.substitute(func.body, func.arg, arg)
+                    if self.verbose:
+                        print(f"Curried function result: {result}")
                     return result
 
                 # Primitive operation handling (addition and multiplication)
                 if isinstance(func.body, BinOp):
-                    if isinstance(arg, Int) and isinstance(func.body.left, Int) and isinstance(func.body.right, Int): #Check if all are Ints
+                    if isinstance(arg, Int) and isinstance(func.body.left, Int) and isinstance(func.body.right, Int):
                         if func.body.op == "+":
-                            return Int(func.body.left.value + func.body.right.value)
+                            result = Int(func.body.left.value + func.body.right.value)
+                            if self.verbose:
+                                print(f"Primitive addition result: {result}")
+                            return result
                         elif func.body.op == "*":
-                            return Int(func.body.left.value * func.body.right.value)
+                            result = Int(func.body.left.value * func.body.right.value)
+                            if self.verbose:
+                                print(f"Primitive multiplication result: {result}")
+                            return result
 
                 # Regular function application
-                return self.eval(self.substitute(func.body, func.arg, arg))
+                if self.verbose:
+                    print(f"Substituting {arg} for {func.arg} in {func.body}")
+                substituted = self.substitute(func.body, func.arg, arg)
+                if self.verbose:
+                    print(f"After substitution: {substituted}")
+                return self.eval(substituted)
 
             return Apply(func, arg)
 
         # Let expression handling
         elif isinstance(node, Let):
+            if self.verbose:
+                print(f"Evaluating let binding for {node.name.name}")
             value = self.eval(node.value)
             self.env[node.name.name] = value
+            if self.verbose:
+                print(f"Evaluating let body: {node.body}")
             return self.eval(node.body)
 
         # Binary operation handling
         elif isinstance(node, BinOp):
+            if self.verbose:
+                print(f"Evaluating left operand: {node.left}")
             left = self.eval(node.left)
+            if self.verbose:
+                print(f"Evaluating right operand: {node.right}")
             right = self.eval(node.right)
             if isinstance(left, Int) and isinstance(right, Int):
                 # Arithmetic operations
                 if node.op == "+":
-                    return Int(left.value + right.value)
+                    result = Int(left.value + right.value)
                 elif node.op == "*":
-                    return Int(left.value * right.value)
+                    result = Int(left.value * right.value)
                 elif node.op == "-":
-                    return Int(left.value - right.value)
+                    result = Int(left.value - right.value)
                 elif node.op == "/":
-                    return Int(left.value // right.value)  # Using integer division
+                    result = Int(left.value // right.value)  # Using integer division
                 # Comparison operations
                 elif node.op == ">":
-                    return Bool(left.value > right.value)
+                    result = Bool(left.value > right.value)
                 elif node.op == "<":
-                    return Bool(left.value < right.value)
+                    result = Bool(left.value < right.value)
                 elif node.op == "==":
-                    return Bool(left.value == right.value)
+                    result = Bool(left.value == right.value)
                 elif node.op == "<=":
-                    return Bool(left.value <= right.value)
+                    result = Bool(left.value <= right.value)
                 elif node.op == ">=":
-                    return Bool(left.value >= right.value)
+                    result = Bool(left.value >= right.value)
+                if self.verbose:
+                    print(f"Binary operation result: {result}")
+                return result
             # Boolean operations
             elif isinstance(left, Bool) and isinstance(right, Bool):
                 if node.op == "&":
-                    return Bool(left.value and right.value)
+                    result = Bool(left.value and right.value)
                 elif node.op == "|":
-                    return Bool(left.value or right.value)
+                    result = Bool(left.value or right.value)
+                if self.verbose:
+                    print(f"Boolean operation result: {result}")
+                return result
             return BinOp(node.op, left, right)
 
         # Unary operation handling
         elif isinstance(node, UnaryOp):
+            if self.verbose:
+                print(f"Evaluating unary operand: {node.operand}")
             operand = self.eval(node.operand)
             if isinstance(operand, Bool) and node.op == "!":
-                return Bool(not operand.value)
+                result = Bool(not operand.value)
+                if self.verbose:
+                    print(f"Unary operation result: {result}")
+                return result
             return UnaryOp(node.op, operand)
 
+        if self.verbose:
+            print(f"Default return: {node}")
         return node
 
     def substitute(self, expr: ASTNode, var: Var, value: ASTNode) -> ASTNode:
@@ -161,12 +209,12 @@ def execute_ast(ast: ASTNode, verbose: bool = False) -> ASTNode:
     Returns:
         The result of the execution.
     """
-    machine = ASTInterpreter()
+    machine = ASTInterpreter(verbose)
     if verbose:
         print(f"Executing AST: {ast}")
     result = machine.eval(ast)
     if verbose:
-        print(f"Result: {result}")
+        print(f"Final result: {result}")
     return result
 
 if __name__ == "__main__":

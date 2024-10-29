@@ -58,6 +58,30 @@ The `mfl.py` can be run with an argument or without, where in the latter case it
 It also takes a `-v`/`--verbose` flag to print the parsing / code generation steps. By default the code will be compiled down to BEAM code,
 via Erlang Core; with the `-s`/`--secd` flag it will instead be executed in the SECD machine.
 
+```bash
+❯ python3 mfl.py --help
+usage: mfl.py [-h] [-v] [-b] [-o OUTPUT] [-s] [-k] [-a] [-g] [expression]
+
+Parse and type-check functional programming expressions.
+
+positional arguments:
+  expression            Expression to parse and type-check
+
+options:
+  -h, --help            show this help message and exit
+  -v, --verbose         Enable verbose output from all modules
+  -b, --backend-verbose
+                        Enable verbose output from backend
+  -o, --output OUTPUT   Output file name
+  -s, --secd            Execute using SECD machine
+  -k, --ski             Execute using SKI combinator machine
+  -a, --ast             Execute using AST interpreter
+  -g, --gmachine        Execute using G-machine
+```
+
+Note: The SKI and G-machine backends are not working atm.
+
+## Examples
 Example, generating BEAM code:
 
 ```bash

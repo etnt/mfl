@@ -29,6 +29,7 @@ def main():
     arg_parser.add_argument('-o', '--output', default="mfl.core", help='Output file name')
     arg_parser.add_argument('-s', '--secd', action='store_true', help='Execute using SECD machine')
     arg_parser.add_argument('-k', '--ski', action='store_true', help='Execute using SKI combinator machine')
+    arg_parser.add_argument('-a', '--ast', action='store_true', help='Execute using AST interpreter')
     arg_parser.add_argument('-g', '--gmachine', action='store_true', help='Execute using G-machine')
     args = arg_parser.parse_args()
 
@@ -56,6 +57,15 @@ def main():
                         print(f"SECD machine result: {result}")
                     except Exception as e:
                         print(f"Error executing with SECD machine: {e}")
+                elif args.ast:
+                    try:
+                        # Execute using AST interpreter
+                        from mfl_ast import ASTInterpreter
+                        ast_interpreter = ASTInterpreter(verbose=args.backend_verbose)
+                        result = ast_interpreter.eval(ast)
+                        print(f"AST interpreter result: {result}")
+                    except Exception as e:
+                        print(f"Error executing with AST interpreter: {e}")
                 elif args.ski:
                     try:
                         # Execute using SKI machine
