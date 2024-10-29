@@ -96,14 +96,26 @@ AST(raw): Let(Var("add"), Function(Var("x"), Function(Var("y"), BinOp("+", Var("
 Error during type checking: Type mismatch: int and bool
  ```
 
-Function composition, using the SKI machine:
+Test Currying:
+
+```bash
+python3 mfl.py -s  "let inc = let add1 = λx.λy.(x+y) in (add1 1) in (inc 4)"
+Successfully parsed!
+AST: let inc = let add1 = λx.λy.(x + y) in (add1 1) in (inc 4)
+AST(raw): Let(Var("inc"), Let(Var("add1"), Function(Var("x"), Function(Var("y"), BinOp("+", Var("x"), Var("y")))), Apply(Var("add1"), Int(1))), Apply(Var("inc"), Int(4)))
+Inferred type: int
+SECD instructions: [('LDF', [('LDF', [('LD', (1, 0)), ('LD', (0, 0)), 'ADD', 'RET']), 'RET']), ('LET', 0), 'NIL', ('LDC', 1), 'CONS', ('LD', (0, 0)), 'AP', ('LET', 0), 'NIL', ('LDC', 4), 'CONS', ('LD', (0, 0)), 'AP']
+SECD machine result: 5
+```
+
+Function composition, using the SKI machine (which is not really working, but fun to try):
 ```bash
 python3 mfl.py -k  "let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x+1) in let double = λx.(x+x) in ((compose double add1) 2)"
 Successfully parsed!
 AST: let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x + 1) in let double = λx.(x + x) in (((compose double) add1) 2)
 AST(raw): Let(Var("compose"), Function(Var("f"), Function(Var("g"), Function(Var("x"), Apply(Var("f"), Apply(Var("g"), Var("x")))))), Let(Var("add1"), Function(Var("x"), BinOp("+", Var("x"), Int(1))), Let(Var("double"), Function(Var("x"), BinOp("+", Var("x"), Var("x"))), Apply(Apply(Apply(Var("compose"), Var("double")), Var("add1")), Int(2)))))
 Inferred type: int
-
 Translating to SKI combinators...
 SKI term: (((S ((S ((S (K S)) ((S ((S (K S)) ((S (K (S (K S)))) ((S ((S (K S)) ((S (K K)) ((S (K S)) ((S ((S (K S)) ((S (K K)) I))) (K I)))))) (K ((S (K K)) I)))))) (K (K (K 2)))))) (K (K ((S ((S (K +)) I)) I))))) (K ((S ((S (K +)) I)) (K 1)))) ((S ((S (K S)) ((S (K K)) ((S (K S)) ((S (K K)) I))))) (K ((S ((S (K S)) ((S (K K)) I))) (K I)))))
 SKI machine result: 6
+ ```

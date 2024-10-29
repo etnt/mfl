@@ -213,23 +213,23 @@ class SECDMachine:
             # Apply function: Call closure with arguments
             closure = extract_value(self.stack.pop())
             args = extract_value(self.stack.pop())
-            
+
             if closure is None:
                 raise ValueError("Cannot apply None as a function")
-                
+
             if not isinstance(closure, Closure):
                 raise ValueError(f"Cannot apply non-closure value: {closure}")
-            
+
             # Save current state
             self.dump.append((self.stack.copy(), self.env, self.control))
-            
+
             # Set up new state for function execution
             # Extract argument value from the args list structure
             arg_value = extract_value(args)
-            
+
             # Create new environment frame with the argument
             new_frame = [arg_value]
-            
+
             self.stack = []
             self.env = [new_frame] + closure.env
             # Make sure we copy the closure body to avoid modifying it
@@ -410,8 +410,7 @@ def execute_ast(ast, verbose=False):
     """
     # Compile AST to instructions
     instructions = compile_ast(ast, {}, 0, verbose)
-    if verbose:
-        print(f"SECD instructions: {instructions}")
+    print(f"SECD instructions: {instructions}")
 
     # Create and run SECD machine
     machine = SECDMachine(verbose)
