@@ -3,11 +3,12 @@
 MFL (Mini Functional Language) Parser and Type Checker
 
 This script provides a command-line interface for parsing, type checking,
-and compiling functional programming expressions into Core Erlang.
+and compiling functional programming expressions into Core Erlang or LLVM IR.
 
 Example Usage:
     python3 mfl.py "let id = λx.x in (id 42)"
     python3 mfl.py -v "let id = λx.x in (id 42)"  # verbose mode
+    python3 mfl.py --llvm "let id = λx.x in (id 42)"  # generate LLVM IR
 """
 
 import argparse
@@ -16,6 +17,7 @@ import shlex  # For safe shell command construction
 from mfl_parser import FunctionalParser
 from mfl_type_checker import infer_j
 from mfl_core_erlang_generator import generate_core_erlang
+from mfl_llvm import generate_llvm
 
 def main():
     """
@@ -31,6 +33,7 @@ def main():
     arg_parser.add_argument('-k', '--ski', action='store_true', help='Execute using SKI combinator machine')
     arg_parser.add_argument('-a', '--ast', action='store_true', help='Execute using AST interpreter')
     arg_parser.add_argument('-g', '--gmachine', action='store_true', help='Execute using G-machine')
+    arg_parser.add_argument('--llvm', action='store_true', help='Generate LLVM IR code')
     args = arg_parser.parse_args()
 
     parser = FunctionalParser([], {}, verbose=args.verbose)  # Grammar rules handled in reduction methods
@@ -86,6 +89,24 @@ def main():
                         print(f"G-machine result: {result}")
                     except Exception as e:
                         print(f"Error executing with G-machine: {e}")
+                elif args.llvm:
+                    try:
+                        # Generate LLVM IR code
+                        llvm_ir = generate_llvm(ast, expr_type)
+                        if args.verbose:
+                            print("\nGenerated LLVM IR code:")
+                            print(llvm_ir)
+                        # Write the generated code to file
+                        output_file = "mfl.ll"
+                        with open(output_file, "w") as f:
+                            f.write(llvm_ir)
+                        print(f"LLVM IR written to: {output_file}")
+                        print("To compile and run:")
+                        print(f"  llc {output_file} -o mfl.s")
+                        print(f"  gcc mfl.s -o mfl")
+                        print(f"  ./mfl")
+                    except Exception as e:
+                        print(f"Error during LLVM IR generation: {str(e)}")
                 else:
                     try:
                         # Generate Core Erlang code
