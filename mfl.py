@@ -43,14 +43,14 @@ def main():
         try:
             ast = parser.parse(args.expression)
             print("Successfully parsed!")
-            print(f"AST: {ast}")
-            print(f"AST(raw): {ast.raw_structure()}")
+            print(f"AST(pretty): {ast}")
 
             # Type check the parsed expression
             type_ctx = {}  # Empty typing context
             try:
                 expr_type = infer_j(ast, type_ctx)
-                print(f"Inferred type: {expr_type}")
+                print(f"AST(typed): {ast.raw_structure()}")
+                print(f"Inferred final type: {expr_type}")
 
                 if args.secd:
                     try:
