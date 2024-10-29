@@ -144,7 +144,7 @@ class CoreErlangGenerator:
         # has translated the use of + to a call to the BIF erlang:'+'/2.
         return f"call 'erlang':{op} ({left}, {right})"
 
-def generate_core_erlang(ast: Any, type_info: MonoType = None) -> str:
+def generate_core_erlang(ast: Any, type_info: MonoType = None, output="mfl") -> str:
     """
     Generate Core Erlang code from an AST.
     Entry point for code generation.
@@ -159,4 +159,4 @@ def generate_core_erlang(ast: Any, type_info: MonoType = None) -> str:
     code = generator.generate(ast, type_info)
 
     # Wrap in module structure if this is a top-level expression
-    return f"module 'mfl' ['main'/0]\nattributes ['file' = [{{\"rune.mfl\",1}}]]\n\n'main'/0 =\n  fun() -> {code}\n\nend\n"
+    return f"module '{output}' ['main'/0]\nattributes ['file' = [{{\"rune.mfl\",1}}]]\n\n'main'/0 =\n  fun() -> {code}\n\nend\n"

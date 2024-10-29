@@ -33,7 +33,7 @@ def main():
     arg_parser.add_argument('-k', '--ski', action='store_true', help='Execute using SKI combinator machine')
     arg_parser.add_argument('-a', '--ast', action='store_true', help='Execute using AST interpreter')
     arg_parser.add_argument('-g', '--gmachine', action='store_true', help='Execute using G-machine')
-    arg_parser.add_argument('--llvm', action='store_true', help='Generate LLVM IR code')
+    arg_parser.add_argument('-l', '--llvm', action='store_true', help='Generate LLVM IR and compile to binary code')
     args = arg_parser.parse_args()
 
     parser = FunctionalParser([], {}, verbose=args.verbose)  # Grammar rules handled in reduction methods
@@ -120,7 +120,7 @@ def main():
                 else:
                     try:
                         # Generate Core Erlang code
-                        core_erlang = generate_core_erlang(ast, expr_type)
+                        core_erlang = generate_core_erlang(ast, expr_type, args.output)
                         if args.verbose:
                             print("\nGenerated Core Erlang code:")
                             print(core_erlang)
