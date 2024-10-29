@@ -14,19 +14,38 @@ Key features implemented:
 - Let bindings
 - Basic arithmetic and comparison operations
 """
-
+import subprocess
 from typing import Any, Dict, List, Optional, Tuple
 from mfl_type_checker import (
     Var, Int, Bool, Function, Apply, Let, BinOp,
     MonoType, TyCon, TyVar
 )
 
+def find_target_triple() -> str:
+    """
+    Determine the target triple for the current system.
+    This is used to set the target triple in the LLVM IR code.
+    """
+    try:
+        result = subprocess.run(['clang', '--version'], capture_output=True, text=True, check=True)
+        # Parsing the output varies greatly depending on the compiler.  This is just an example; adapt it accordingly.
+        output_lines = result.stdout.splitlines()
+        for line in output_lines:
+            if "Target:" in line:
+                target_triple = line.split(": ")[1].strip()
+                print(f'target triple = "{target_triple}"')
+                return target_triple
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing clang: {e}")
+    except FileNotFoundError:
+        print("clang not found in PATH")
+
 class LLVMGenerator:
     """
     Generates LLVM IR code from AST nodes.
     Implements the visitor pattern to traverse the AST.
     """
-    
+
     def __init__(self):
         self.fresh_counter = 0
         self.functions: Dict[str, str] = {}  # Maps function names to their types
@@ -38,10 +57,13 @@ class LLVMGenerator:
 
     def _init_runtime(self):
         """Initialize LLVM IR with necessary declarations"""
+        target_triple = find_target_triple()
+        # FIXME not perfect since the found 'clang --version' is overridden by clang at compilation...why?
+        # 'target triple = "arm64-apple-macosx14.0.0"',
         self.declarations.extend([
             "; MFL to LLVM IR Compiler Output",
             "",
-            'target triple = "arm64-apple-macosx14.0.0"',
+            f'target triple = "{target_triple}"',
             "",
             "declare i32 @printf(i8* nocapture readonly, ...)",
             "",
@@ -115,56 +137,56 @@ class LLVMGenerator:
         """Generate LLVM IR for function definition"""
         func_name = f"@func_{self.fresh_counter}"
         self.fresh_counter += 1
-        
+
         # Save current function context
         old_function = self.current_function
         old_variables = self.variables.copy()
         old_definitions = self.definitions
-        
+
         self.current_function = func_name
         self.variables = {}
         self.definitions = []
-        
+
         # Function header
         self.definitions.extend([
             f"define i32 {func_name}(i32 %{node.arg.name}) {{",
             "entry:"
         ])
-        
+
         # Store argument in alloca
         arg_ptr = self.fresh_var("arg_ptr")
         self.definitions.append(f"    {arg_ptr} = alloca i32")
         self.definitions.append(f"    store i32 %{node.arg.name}, i32* {arg_ptr}")
         self.variables[node.arg.name] = (arg_ptr, "i32")
-        
+
         # Generate function body
         body_reg, body_type = self.generate(node.body)
-        
+
         # Return the result
         self.definitions.extend([
             f"    ret i32 {body_reg}",
             "}"
         ])
-        
+
         # Add function definition to declarations
         func_def = "\n".join(self.definitions)
-        
+
         # Restore function context
         self.current_function = old_function
         self.variables = old_variables
         self.definitions = old_definitions
-        
+
         # Add function definition to declarations
         self.declarations.append("")  # Add blank line before function
         self.declarations.extend(func_def.split("\n"))
-        
+
         return func_name, "function"
 
     def generate_apply(self, node: Apply) -> Tuple[str, str]:
         """Generate LLVM IR for function application"""
         func_reg, func_type = self.generate(node.func)
         arg_reg, arg_type = self.generate(node.arg)
-        
+
         result_reg = self.fresh_var("call")
         self.definitions.append(f"    {result_reg} = call i32 {func_reg}(i32 {arg_reg})")
         return result_reg, "i32"
@@ -172,7 +194,7 @@ class LLVMGenerator:
     def generate_let(self, node: Let) -> Tuple[str, str]:
         """Generate LLVM IR for let binding"""
         value_reg, value_type = self.generate(node.value)
-        
+
         # Allocate space for the variable
         if value_type == "function":
             ptr_reg = self.fresh_var(f"{node.name.name}_ptr")
@@ -184,19 +206,19 @@ class LLVMGenerator:
             self.definitions.append(f"    {ptr_reg} = alloca i32")
             self.definitions.append(f"    store i32 {value_reg}, i32* {ptr_reg}")
             self.variables[node.name.name] = (ptr_reg, "i32")
-        
+
         # Generate body with new variable in scope
         body_reg, body_type = self.generate(node.body)
-        
+
         return body_reg, body_type
 
     def generate_binop(self, node: BinOp) -> Tuple[str, str]:
         """Generate LLVM IR for binary operations"""
         left_reg, left_type = self.generate(node.left)
         right_reg, right_type = self.generate(node.right)
-        
+
         result_reg = self.fresh_var("binop")
-        
+
         # Map Python operators to LLVM instructions
         op_map = {
             "+": "add",
@@ -211,7 +233,7 @@ class LLVMGenerator:
             "<=": "icmp sle",
             ">=": "icmp sge"
         }
-        
+
         if node.op in op_map:
             llvm_op = op_map[node.op]
             if llvm_op.startswith("icmp"):
@@ -230,10 +252,10 @@ class LLVMGenerator:
             "define i32 @main() {",
             "entry:"
         ])
-        
+
         # Generate code for the expression
         result_reg, result_type = self.generate(ast)
-        
+
         # Print the result
         if result_type == "i32":
             self.definitions.extend([
@@ -245,7 +267,7 @@ class LLVMGenerator:
             false_label = self.fresh_label("false")
             end_label = self.fresh_label("end")
             str_reg = self.fresh_var("str")
-            
+
             self.definitions.extend([
                 f"    br i1 {result_reg}, label %{true_label}, label %{false_label}",
                 f"{true_label}:",
@@ -257,16 +279,16 @@ class LLVMGenerator:
                 f"{end_label}:",
                 f"    call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.str.bool, i64 0, i64 0), i8* {str_reg})"
             ])
-        
+
         self.definitions.extend([
             "    ret i32 0",
             "}"
         ])
-        
+
         # Add main function to declarations
         self.declarations.append("")  # Add blank line before main
         self.declarations.extend(self.definitions)
-        
+
         return "\n".join(self.declarations)
 
 def generate_llvm(ast: Any, type_info: MonoType = None) -> str:
