@@ -5,20 +5,13 @@ import os
 # Get the directory of the current file
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
-# Get the parent directory
-parent_dir = os.path.dirname(current_dir)
-
-# Add the 'mfl' directory to the Python path
-sys.path.insert(0, os.path.join(parent_dir, 'mfl'))
+# add ../mfl to the Python path
+sys.path.insert(0, os.path.join(current_dir, '../mfl'))
 
 from mfl_ast import execute_ast
-from mfl_type_checker import Int, Bool, BinOp, Let, Var, Function, Apply
-from mfl_parser import FunctionalParser
+from mfl_type_checker import Int, Bool, BinOp, Let, Var, Function, Apply, If
 
 class TestASTInterpreter(unittest.TestCase):
-
-    def setUp(self):
-        self.parser = FunctionalParser([], {})
 
     def test_greater_than(self):
         # Test 5 > 3 (should be True)
@@ -116,29 +109,61 @@ class TestASTInterpreter(unittest.TestCase):
 
     def test_complex_comparison(self):
         # Test a more complex expression: let max = λx.λy.if (x > y) then x else y
-        # Since we don't have if-then-else, we'll test just the comparison part
         max_func = Let(
             Var("max"),
-            Function(Var("x"), Function(Var("y"), BinOp(">", Var("x"), Var("y")))),
+            Function(Var("x"), Function(Var("y"), 
+                If(BinOp(">", Var("x"), Var("y")), Var("x"), Var("y")))),
             Apply(Apply(Var("max"), Int(5)), Int(3))
         )
         result = execute_ast(max_func, False)
-        self.assertTrue(result.value)
+        self.assertEqual(result.value, 5)
 
-    def test_let_expression_add(self):
-        ast = self.parser.parse("let add = λx.λy.(x+y) in (add 3 4)")
+    def test_if_expression_basic(self):
+        # Test if true then 1 else 0
+        ast = If(Bool(True), Int(1), Int(0))
         result = execute_ast(ast, False)
-        self.assertEqual(result, 7)
+        self.assertEqual(result.value, 1)
 
-    def test_let_expression_double(self):
-        ast = self.parser.parse("let double = λx.(x*2) in (double 21)")
+        # Test if false then 1 else 0
+        ast = If(Bool(False), Int(1), Int(0))
         result = execute_ast(ast, False)
-        self.assertEqual(result, 42)
+        self.assertEqual(result.value, 0)
 
-    def test_let_expression_compose(self):
-        ast = self.parser.parse("let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x+1) in let double = λx.(x+x) in ((compose double add1) 2)")
+    def test_if_expression_with_comparison(self):
+        # Test if 5 > 3 then 1 else 0
+        ast = If(BinOp(">", Int(5), Int(3)), Int(1), Int(0))
         result = execute_ast(ast, False)
-        self.assertEqual(result, 6)
+        self.assertEqual(result.value, 1)
+
+        # Test if 3 > 5 then 1 else 0
+        ast = If(BinOp(">", Int(3), Int(5)), Int(1), Int(0))
+        result = execute_ast(ast, False)
+        self.assertEqual(result.value, 0)
+
+    def test_if_expression_in_function(self):
+        # Test let abs = λx.if (x < 0) then (0 - x) else x
+        abs_func = Let(
+            Var("abs"),
+            Function(Var("x"), 
+                If(BinOp("<", Var("x"), Int(0)),
+                   BinOp("-", Int(0), Var("x")),
+                   Var("x"))),
+            Apply(Var("abs"), Int(-5))
+        )
+        result = execute_ast(abs_func, False)
+        self.assertEqual(result.value, 5)
+
+        # Test with positive number
+        abs_func = Let(
+            Var("abs"),
+            Function(Var("x"), 
+                If(BinOp("<", Var("x"), Int(0)),
+                   BinOp("-", Int(0), Var("x")),
+                   Var("x"))),
+            Apply(Var("abs"), Int(5))
+        )
+        result = execute_ast(abs_func, False)
+        self.assertEqual(result.value, 5)
 
 
 if __name__ == "__main__":

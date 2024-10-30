@@ -102,7 +102,7 @@ This will:
 # Import the ASTNode classes
 from typing import Dict, List, Optional, Tuple, Union, Set
 from dataclasses import dataclass
-from mfl_type_checker import ASTNode, Var, Function, Apply, Let, Int, Bool, BinOp, UnaryOp
+from mfl_ast import ASTNode, Var, Function, Apply, Let, Int, Bool, BinOp, UnaryOp
 
 # G-machine instructions
 class Instruction:

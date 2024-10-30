@@ -20,6 +20,7 @@ This document defines the formal grammar for MFL (Mini Functional Language) usin
          | <lambda>
          | <application>
          | <let>
+         | <if>
          | <binary_op>
          | <unary_op>
          | "(" <expr> ")"
@@ -33,6 +34,8 @@ This document defines the formal grammar for MFL (Mini Functional Language) usin
 <application> ::= "(" <expr> <expr> ")"
 
 <let> ::= "let" <identifier> "=" <expr> "in" <expr>
+
+<if> ::= "if" <expr> "then" <expr> "else" <expr>
 
 <binary_op> ::= <expr> <operator> <expr>
 
@@ -54,6 +57,7 @@ This document defines the formal grammar for MFL (Mini Functional Language) usin
 7. Boolean OR (|)
 8. Lambda abstraction
 9. Let expressions
+10. If expressions
 
 ## Examples
 
@@ -77,6 +81,9 @@ True
 # Let binding
 let x = 1 in x
 
+# If expression
+if x > 0 then x else 0
+
 # Binary operations
 x + y
 x * y
@@ -86,5 +93,6 @@ x > y
 # Unary operation
 !x
 
-# Complex expression
+# Complex expressions
 let f = λx.(x + 1) in (f 5)
+if (x > 0) then (f x) else 0

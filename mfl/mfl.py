@@ -1,20 +1,13 @@
 #!/usr/bin/env python3
 """
 MFL (Mini Functional Language) Parser and Type Checker
-
-This script provides a command-line interface for parsing, type checking,
-and compiling functional programming expressions into Core Erlang or LLVM IR.
-
-Example Usage:
-    python3 mfl.py "let id = λx.x in (id 42)"
-    python3 mfl.py -v "let id = λx.x in (id 42)"  # verbose mode
-    python3 mfl.py --llvm "let id = λx.x in (id 42)"  # generate LLVM IR
 """
 
 import argparse
 import subprocess
 import shlex  # For safe shell command construction
 from mfl_parser import FunctionalParser
+from mfl_ply_parser import parser as ply_parser
 from mfl_type_checker import infer_j
 from mfl_core_erlang_generator import generate_core_erlang
 from mfl_llvm import generate_llvm
@@ -41,7 +34,8 @@ def main():
     # If expression is provided as command-line argument, use it
     if args.expression:
         try:
-            ast = parser.parse(args.expression)
+            # ast = parser.parse(args.expression)
+            ast = ply_parser.parse(args.expression)
             print("Successfully parsed!")
             print(f"AST(pretty): {ast}")
 
@@ -49,7 +43,7 @@ def main():
             type_ctx = {}  # Empty typing context
             try:
                 expr_type = infer_j(ast, type_ctx)
-                print(f"AST(typed): {ast.raw_structure()}")
+                print(f"AST(typed): {ast.typed_structure()}")
                 print(f"Inferred final type: {expr_type}")
 
                 if args.secd:
@@ -63,9 +57,8 @@ def main():
                 elif args.ast:
                     try:
                         # Execute using AST interpreter
-                        from mfl_ast import ASTInterpreter
-                        ast_interpreter = ASTInterpreter(verbose=args.backend_verbose)
-                        result = ast_interpreter.eval(ast)
+                        from mfl_ast import execute_ast
+                        result = execute_ast(ast, args.backend_verbose)
                         print(f"AST interpreter result: {result}")
                     except Exception as e:
                         print(f"Error executing with AST interpreter: {e}")
@@ -120,7 +113,7 @@ def main():
                 else:
                     try:
                         # Generate Core Erlang code
-                        core_erlang = generate_core_erlang(ast, expr_type, args.output)
+                        core_erlang = generate_core_erlang(ast, args.output)
                         if args.verbose:
                             print("\nGenerated Core Erlang code:")
                             print(core_erlang)

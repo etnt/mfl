@@ -1,4 +1,4 @@
-"""Unit tests for the functional parser with comparison operators."""
+"""Unit tests for the PLY parser implementation."""
 
 import unittest
 import sys
@@ -10,45 +10,42 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 # add ../mfl to the Python path
 sys.path.insert(0, os.path.join(current_dir, '../mfl'))
 
-from mfl_parser import FunctionalParser
+from mfl_ply_parser import parse
 from mfl_type_checker import BinOp, Int, Bool, If, infer_j
 from mfl_ast import execute_ast
 
-class TestComparisonOperators(unittest.TestCase):
-
-    def setUp(self):
-        self.parser = FunctionalParser([], {})
+class TestPLYParser(unittest.TestCase):
 
     def test_greater_than(self):
-        ast = self.parser.parse("5 > 3")
+        ast = parse("5 > 3")
         self.assertIsInstance(ast, BinOp)
         self.assertEqual(ast.op, ">")
         self.assertEqual(ast.left.value, 5)
         self.assertEqual(ast.right.value, 3)
 
     def test_less_than(self):
-        ast = self.parser.parse("2 < 7")
+        ast = parse("2 < 7")
         self.assertIsInstance(ast, BinOp)
         self.assertEqual(ast.op, "<")
         self.assertEqual(ast.left.value, 2)
         self.assertEqual(ast.right.value, 7)
 
     def test_equality(self):
-        ast = self.parser.parse("4 == 4")
+        ast = parse("4 == 4")
         self.assertIsInstance(ast, BinOp)
         self.assertEqual(ast.op, "==")
         self.assertEqual(ast.left.value, 4)
         self.assertEqual(ast.right.value, 4)
 
     def test_less_than_or_equal(self):
-        ast = self.parser.parse("3 <= 3")
+        ast = parse("3 <= 3")
         self.assertIsInstance(ast, BinOp)
         self.assertEqual(ast.op, "<=")
         self.assertEqual(ast.left.value, 3)
         self.assertEqual(ast.right.value, 3)
 
     def test_greater_than_or_equal(self):
-        ast = self.parser.parse("8 >= 5")
+        ast = parse("8 >= 5")
         self.assertIsInstance(ast, BinOp)
         self.assertEqual(ast.op, ">=")
         self.assertEqual(ast.left.value, 8)
@@ -56,33 +53,27 @@ class TestComparisonOperators(unittest.TestCase):
 
     def test_type_checking(self):
         ctx = {}
-        for expr in [self.parser.parse("5 > 3"), self.parser.parse("2 < 7"), self.parser.parse("4 == 4"), self.parser.parse("3 <= 3"), self.parser.parse("8 >= 5")]:
+        for expr in [parse("5 > 3"), parse("2 < 7"), parse("4 == 4"), parse("3 <= 3"), parse("8 >= 5")]:
             type_result = infer_j(expr, ctx)
             self.assertEqual(str(type_result), "bool")
 
     def test_let_expression_double(self):
-        ast = self.parser.parse("let double = λx.(x*2) in (double 21)")
+        ast = parse("let double = λx.(x*2) in (double 21)")
         result = execute_ast(ast, False)
         self.assertEqual(result, 42)
 
     def test_let_expression_add(self):
-        ast = self.parser.parse("let add = λx.λy.(x+y) in (add 3 4)")
+        ast = parse("let add =  λx.λy.(x+y) in (add 3 4)")
         result = execute_ast(ast, False)
         self.assertEqual(result, 7)
 
     def test_let_expression_compose(self):
-        ast = self.parser.parse("let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x+1) in let double = λx.(x+x) in ((compose double add1) 2)")
+        ast = parse("let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x+1) in let double = λx.(x+x) in ((compose double add1) 2)")
         result = execute_ast(ast, False)
         self.assertEqual(result, 6)
 
-
-class TestIfExpressions(unittest.TestCase):
-
-    def setUp(self):
-        self.parser = FunctionalParser([], {})
-
     def test_basic_if_structure(self):
-        ast = self.parser.parse("if True then 1 else 0")
+        ast = parse("if True then 1 else 0")
         self.assertIsInstance(ast, If)
         self.assertIsInstance(ast.cond, Bool)
         self.assertTrue(ast.cond.value)
@@ -92,7 +83,7 @@ class TestIfExpressions(unittest.TestCase):
         self.assertEqual(ast.else_expr.value, 0)
 
     def test_if_with_comparison(self):
-        ast = self.parser.parse("if 5 > 3 then 1 else 0")
+        ast = parse("if 5 > 3 then 1 else 0")
         self.assertIsInstance(ast, If)
         self.assertIsInstance(ast.cond, BinOp)
         self.assertEqual(ast.cond.op, ">")
@@ -100,7 +91,7 @@ class TestIfExpressions(unittest.TestCase):
         self.assertEqual(ast.cond.right.value, 3)
 
     def test_if_with_arithmetic(self):
-        ast = self.parser.parse("if True then 2 + 3 else 5 - 1")
+        ast = parse("if True then 2 + 3 else 5 - 1")
         self.assertIsInstance(ast, If)
         self.assertIsInstance(ast.then_expr, BinOp)
         self.assertEqual(ast.then_expr.op, "+")
@@ -108,33 +99,32 @@ class TestIfExpressions(unittest.TestCase):
         self.assertEqual(ast.else_expr.op, "-")
 
     def test_nested_if(self):
-        ast = self.parser.parse("if True then if False then 1 else 2 else 3")
+        ast = parse("if True then if False then 1 else 2 else 3")
         self.assertIsInstance(ast, If)
         self.assertIsInstance(ast.then_expr, If)
         self.assertIsInstance(ast.else_expr, Int)
 
     def test_if_execution_true_branch(self):
-        ast = self.parser.parse("if 5 > 3 then 42 else 0")
+        ast = parse("if 5 > 3 then 42 else 0")
         result = execute_ast(ast, False)
         self.assertEqual(result, 42)
 
     def test_if_execution_false_branch(self):
-        ast = self.parser.parse("if 2 > 3 then 42 else 0")
+        ast = parse("if 2 > 3 then 42 else 0")
         result = execute_ast(ast, False)
         self.assertEqual(result, 0)
 
     def test_if_type_checking(self):
         ctx = {}
         # Test that condition must be boolean
-        ast = self.parser.parse("if True then 1 else 0")
+        ast = parse("if True then 1 else 0")
         type_result = infer_j(ast, ctx)
         self.assertEqual(str(type_result), "int")
 
         # Test that branches must have same type
-        ast = self.parser.parse("if 5 > 3 then 42 else 0")
+        ast = parse("if 5 > 3 then 42 else 0")
         type_result = infer_j(ast, ctx)
         self.assertEqual(str(type_result), "int")
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,11 +7,8 @@ import os
 # Get the directory of the current file
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
-# Get the parent directory
-parent_dir = os.path.dirname(current_dir)
-
-# Add the 'mfl' directory to the Python path
-sys.path.insert(0, os.path.join(parent_dir, 'mfl'))
+# add ../mfl to the Python path
+sys.path.insert(0, os.path.join(current_dir, '../mfl'))
 
 from mfl_secd import SECDMachine
 from mfl_parser import FunctionalParser

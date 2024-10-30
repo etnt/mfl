@@ -1,6 +1,6 @@
 # Import the ASTNode classes
 from typing import Union
-from mfl_type_checker import ASTNode, Var, Function, Apply, Let, Int, Bool, BinOp, UnaryOp
+from mfl_ast import ASTNode, Var, Function, Apply, Let, Int, Bool, BinOp, UnaryOp
 
 class Combinator(ASTNode):
     """Base class for combinators."""

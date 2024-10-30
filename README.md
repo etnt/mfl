@@ -90,10 +90,10 @@ Note: The LLVM- and G-machine backends are not working atm.
 Example, generating BEAM code:
 
 ```bash
-❯ ./venv/bin/python3 mfl.py "let double = λx.(x*2) in (double 21)"
+❯ python3 ./mfl/mfl.py "let double = λx.(x*2) in (double 21)"
 Successfully parsed!
 AST: let double = λx.(x * 2) in (double 21)
-AST(raw): Let(Var("double"), Function(Var("x"), BinOp("*", Var("x"), Int(2))), Apply(Var("double"), Int(21)))
+AST(typed): Let<int>(Var<->(int, int)>("double"), Function<->(int, int)>(Var<int>("x"), BinOp<int>("*", Var<int>("x"), Int<int>(2))), Apply<int>(Var<->(int, int)>("double"), Int<int>(21)))
 Inferred type: int
 Output written to: mfl.core ,compiling to BEAM as: erlc +from_core mfl.core
 Compilation successful!
@@ -106,10 +106,10 @@ Compilation successful!
 Another example, this time running our code in the SECD machine:
 
 ```bash
-❯ ./venv/bin/python3 mfl.py -s "let add = λx.λy.(x+y) in (add 3 4)"
+❯ python3 ./mfl/mfl.py -s "let add = λx.λy.(x+y) in (add 3 4)"
 Successfully parsed!
 AST: let add = λx.λy.(x+y) in ((add 3) 4)
-AST(raw): Let(Var("add"), Function(Var("x"), Function(Var("y"), BinOp("+", Var("x"), Var("y")))), Apply(Apply(Var("add"), Int(3)), Int(4)))
+AST(typed): Let<int>(Var<->(int, ->(int, int))>("add"), Function<->(int, ->(int, int))>(Var<int>("x"), Function<->(int, int)>(Var<int>("y"), BinOp<int>("+", Var<int>("x"), Var<int>("y")))), Apply<int>(Apply<->(int, int)>(Var<->(int, ->(int, int))>("add"), Int<int>(3)), Int<int>(4)))
 Inferred type: int
 SECD instructions: [('LDF', [('LDF', [('LD', (1, 0)), ('LD', (0, 0)), 'ADD', 'RET']), 'RET']), ('LET', 0), 'NIL', ('LDC', 4), 'CONS', 'NIL', ('LDC', 3), 'CONS', ('LD', (0, 0)), 'AP', 'AP']
 SECD machine result: 7
@@ -118,7 +118,7 @@ SECD machine result: 7
 Testing the type checker:
 
 ```bash
-❯ ./venv/bin/python3 mfl.py -s "let add = λx.λy.(x+y) in (add 3 True)"
+❯ python3 ./mfl/mfl.py -s "let add = λx.λy.(x+y) in (add 3 True)"
 Successfully parsed!
 AST: let add = λx.λy.(x + y) in ((add 3) True)
 AST(raw): Let(Var("add"), Function(Var("x"), Function(Var("y"), BinOp("+", Var("x"), Var("y")))), Apply(Apply(Var("add"), Int(3)), Bool(True))) 
@@ -128,10 +128,10 @@ Error during type checking: Type mismatch: int and bool
 Test Currying:
 
 ```bash
-python3 mfl.py -s  "let inc = let add1 = λx.λy.(x+y) in (add1 1) in (inc 4)"
+python3 ./mfl/mfl.py -s  "let inc = let add1 = λx.λy.(x+y) in (add1 1) in (inc 4)"
 Successfully parsed!
 AST: let inc = let add1 = λx.λy.(x + y) in (add1 1) in (inc 4)
-AST(raw): Let(Var("inc"), Let(Var("add1"), Function(Var("x"), Function(Var("y"), BinOp("+", Var("x"), Var("y")))), Apply(Var("add1"), Int(1))), Apply(Var("inc"), Int(4)))
+AST(typed): Let<int>(Var<->(int, int)>("inc"), Let<->(int, int)>(Var<->(int, ->(int, int))>("add1"), Function<->(int, ->(int, int))>(Var<int>("x"), Function<->(int, int)>(Var<int>("y"), BinOp<int>("+", Var<int>("x"), Var<int>("y")))), Apply<->(int, int)>(Var<->(int, ->(int, int))>("add1"), Int<int>(1))), Apply<int>(Var<->(int, int)>("inc"), Int<int>(4)))
 Inferred type: int
 SECD instructions: [('LDF', [('LDF', [('LD', (1, 0)), ('LD', (0, 0)), 'ADD', 'RET']), 'RET']), ('LET', 0), 'NIL', ('LDC', 1), 'CONS', ('LD', (0, 0)), 'AP', ('LET', 0), 'NIL', ('LDC', 4), 'CONS', ('LD', (0, 0)), 'AP']
 SECD machine result: 5
@@ -139,20 +139,20 @@ SECD machine result: 5
 
 Function composition, using the SKI machine:
 ```bash
-python3 mfl.py -k  "let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x+1) in let double = λx.(x+x) in ((compose double add1) 2)"
+python3 ./mfl/mfl.py -k  "let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x+1) in let double = λx.(x+x) in ((compose double add1) 2)"
 Successfully parsed!
 AST: let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x + 1) in let double = λx.(x + x) in (((compose double) add1) 2)
-AST(raw): Let(Var("compose"), Function(Var("f"), Function(Var("g"), Function(Var("x"), Apply(Var("f"), Apply(Var("g"), Var("x")))))), Let(Var("add1"), Function(Var("x"), BinOp("+", Var("x"), Int(1))), Let(Var("double"), Function(Var("x"), BinOp("+", Var("x"), Var("x"))), Apply(Apply(Apply(Var("compose"), Var("double")), Var("add1")), Int(2)))))
+AST(typed): Let<int>(Var<->(->(int, int), ->(->(int, int), ->(int, int)))>("compose"), Function<->(->(int, int), ->(->(int, int), ->(int, int)))>(Var<->(int, int)>("f"), Function<->(->(int, int), ->(int, int))>(Var<->(int, int)>("g"), Function<->(int, int)>(Var<int>("x"), Apply<int>(Var<->(int, int)>("f"), Apply<int>(Var<->(int, int)>("g"), Var<int>("x")))))), Let<int>(Var<->(int, int)>("add1"), Function<->(int, int)>(Var<int>("x"), BinOp<int>("+", Var<int>("x"), Int<int>(1))), Let<int>(Var<->(int, int)>("double"), Function<->(int, int)>(Var<int>("x"), BinOp<int>("+", Var<int>("x"), Var<int>("x"))), Apply<int>(Apply<->(int, int)>(Apply<->(->(int, int), ->(int, int))>(Var<->(->(int, int), ->(->(int, int), ->(int, int)))>("compose"), Var<->(int, int)>("double")), Var<->(int, int)>("add1")), Int<int>(2))))) 
 Inferred type: int
 Translating to SKI combinators...
 SKI term: (((S ((S ((S (K S)) ((S ((S (K S)) ((S (K (S (K S)))) ((S ((S (K S)) ((S (K K)) ((S (K S)) ((S ((S (K S)) ((S (K K)) I))) (K I)))))) (K ((S (K K)) I)))))) (K (K (K 2)))))) (K (K ((S ((S (K +)) I)) I))))) (K ((S ((S (K +)) I)) (K 1)))) ((S ((S (K S)) ((S (K K)) ((S (K S)) ((S (K K)) I))))) (K ((S ((S (K S)) ((S (K K)) I))) (K I)))))
 SKI machine result: 6
  ```
 
-Example, using the LLVM backend:
+Example, using the LLVM backend (not fully working yet):
 
 ```bash
-❯ python3 mfl.py -o double -l "let double = λx.(x*2) in (double 21)"
+❯ python3 ./mfl/mfl.py -o double -l "let double = λx.(x*2) in (double 21)"
 Successfully parsed! 
 AST: let double = λx.(x * 2) in (double 21) 
 AST(raw): Let(Var("double"), Function(Var("x"), BinOp("*", Var("x"), Int(2))), Apply(Var("double"), Int(21))) 

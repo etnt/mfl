@@ -17,10 +17,10 @@ Key features implemented:
 
 import subprocess
 from typing import Any, Dict, List, Optional, Tuple
-from mfl_type_checker import (
-    Var, Int, Bool, Function, Apply, Let, BinOp,
-    MonoType, TyCon, TyVar
+from mfl_ast import (
+    Var, Int, Bool, Function, Apply, Let, BinOp
 )
+from mfl_type_checker import (MonoType, TyCon, TyVar)
 
 def find_target_triple() -> str:
     """
@@ -44,7 +44,7 @@ class LLVMGenerator:
     Generates LLVM IR code from AST nodes.
     Implements the visitor pattern to traverse the AST.
     """
-    
+
     def __init__(self, verbose=False):
         self.fresh_counter = 0
         self.functions: Dict[str, str] = {}  # Maps function names to their types

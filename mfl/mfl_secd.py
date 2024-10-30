@@ -35,7 +35,7 @@ Instructions:
 - RAP: Recursive apply
 """
 
-from mfl_type_checker import (
+from mfl_ast import (
     Int, Bool, Var, Function, Apply, Let, BinOp, UnaryOp
 )
 
@@ -100,7 +100,7 @@ class SECDMachine:
         while self.control:
             instruction = self.control.pop(0)
             self.execute(instruction)
-            
+
             # After executing all instructions, if we have a nested list result
             # extract the actual value
             if len(self.stack) == 1 and isinstance(self.stack[0], list):
@@ -380,7 +380,6 @@ def compile_ast(ast, env_map=None, level=0, verbose=False):
                 *left_code,
                 op_map[ast.op]
             ]
-        
         return [
             *left_code,
             *right_code,

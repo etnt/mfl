@@ -23,9 +23,8 @@ Example Core Erlang output:
 """
 
 from typing import Any, Dict, List
-from mfl_type_checker import (
-    Var, Int, Bool, Function, Apply, Let, BinOp,
-    MonoType, TyCon, TyVar
+from mfl_ast import (
+    Var, Int, Bool, Function, Apply, Let, BinOp
 )
 
 class CoreErlangGenerator:
@@ -47,7 +46,7 @@ class CoreErlangGenerator:
         """Return current indentation as spaces"""
         return "  " * self.indentation
 
-    def generate(self, node: Any, type_info: MonoType = None) -> str:
+    def generate(self, node: Any) -> str:
         """
         Generate Core Erlang code for an AST node.
         Dispatches to appropriate handler method based on node type.
@@ -144,7 +143,7 @@ class CoreErlangGenerator:
         # has translated the use of + to a call to the BIF erlang:'+'/2.
         return f"call 'erlang':{op} ({left}, {right})"
 
-def generate_core_erlang(ast: Any, type_info: MonoType = None, output="mfl") -> str:
+def generate_core_erlang(ast: Any, output="mfl") -> str:
     """
     Generate Core Erlang code from an AST.
     Entry point for code generation.
@@ -156,7 +155,7 @@ def generate_core_erlang(ast: Any, type_info: MonoType = None, output="mfl") -> 
         A string containing the generated Core Erlang code
     """
     generator = CoreErlangGenerator()
-    code = generator.generate(ast, type_info)
+    code = generator.generate(ast)
 
     # Wrap in module structure if this is a top-level expression
     return f"module '{output}' ['main'/0]\nattributes ['file' = [{{\"rune.mfl\",1}}]]\n\n'main'/0 =\n  fun() -> {code}\n\nend\n"

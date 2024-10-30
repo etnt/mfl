@@ -34,8 +34,28 @@ install-requirements:
 	$(PIP) install -r $(REQUIREMENTS)
 
 .PHONY: test
-test: 
-	./venv/bin/$(PYTHON) -m unittest ./test/test_ast_interpreter.py -v
-	./venv/bin/$(PYTHON) -m unittest ./test/test_parser.py -v
-	./venv/bin/$(PYTHON) -m unittest ./test/test_secd.py -v
-	./venv/bin/$(PYTHON) -m unittest ./test/test_type_checker.py -v
+test: test_ast test_type test_parser test_ply_parser test_secd test_ski
+
+.PHONY: test_ast
+test_ast:
+	(cd test; ../venv/bin/$(PYTHON) -m unittest test_ast_interpreter.py -v )
+
+.PHONY: test_parser
+test_parser:
+	(cd test; ../venv/bin/$(PYTHON) -m unittest test_parser.py -v )
+
+.PHONY: test_ply_parser
+test_ply_parser:
+	(cd test; ../venv/bin/$(PYTHON) -m unittest test_ply_parser.py -v )
+
+.PHONY: test_secd
+test_secd:
+	(cd test; ../venv/bin/$(PYTHON) -m unittest test_secd.py -v )
+
+.PHONY: test_type
+test_type:
+	(cd test; ../venv/bin/$(PYTHON) -m unittest test_type_checker.py -v )
+
+.PHONY: test_ski
+test_ski:
+	(cd test; ../venv/bin/$(PYTHON) -m unittest test_ski.py -v )

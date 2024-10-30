@@ -1,57 +1,10 @@
 """
 A Shift-Reduce Parser for a simple functional programming language.
-
-This parser implements a bottom-up parsing strategy for parsing functional programming
-constructs including:
-- Integer literals
-- Boolean literals
-- Variables
-- Lambda abstractions
-- Function applications
-- Let bindings
-- Arithmetic expressions
-- Boolean expressions
-- Comparison expressions
-
-Grammar Rules:
-    Program -> Expr
-    Expr    -> INT_LITERAL
-             | BOOL_LITERAL
-             | IDENTIFIER
-             | Lambda
-             | Apply
-             | Let
-             | ArithExpr
-             | BoolExpr
-             | CompExpr
-             | ( Expr )
-
-    Lambda  -> λ IDENTIFIER . Expr
-    Apply   -> ( Expr Expr )
-    Let     -> let IDENTIFIER = Expr in Expr
-    ArithExpr -> Expr + Expr
-                | Expr - Expr
-                | Expr * Expr
-                | Expr / Expr
-    BoolExpr -> Expr & Expr
-              | Expr | Expr
-              | ! Expr
-    CompExpr -> Expr > Expr
-              | Expr < Expr
-              | Expr == Expr
-              | Expr <= Expr
-              | Expr >= Expr
-
-Example Usage:
-    from functional_parser import FunctionalParser
-    parser = FunctionalParser([], {})
-    ast = parser.parse("let id = λx.x in (id True)")
 """
 
 from typing import List, Dict, Any
-from mfl_type_checker import (
-    Var, Int, Bool, Function, Apply, Let, BinOp, UnaryOp,
-    infer_j, Forall, IntType, BoolType
+from mfl_ast import (
+    Var, Int, Bool, Function, Apply, Let, If, BinOp, UnaryOp
 )
 
 class FunctionalParser:
@@ -139,35 +92,53 @@ class FunctionalParser:
             return True
 
         # Try to reduce identifiers, but not keywords or special chars
-        if top.isalnum() and not top.isdigit() and top not in ["let", "in", "λ", "True", "False"]:
+        if top.isalnum() and not top.isdigit() and top not in ["let", "in", "if", "then", "else", "λ", "True", "False"]:
             self.stack.pop()
-            self.stack.append(("IDENTIFIER", top))
+            self.stack.append(("Expr", Var(top)))
             self.debug_print(f"Reduced identifier: {top}")
             return True
 
         return False
 
-    def try_grammar_reduction(self) -> bool:
-        """
-        Attempt to reduce according to grammar rules.
-        """
-        if len(self.stack) < 2:
-            return False
+    def reduce_binary_operation(self, start_idx: int) -> bool:
+        """Helper method to reduce binary operations"""
+        if (isinstance(self.stack[start_idx], tuple) and self.stack[start_idx][0] == "Expr" and
+            self.stack[start_idx + 1] in ["+", "-", "*", "/", "&", "|", ">", "<", "==", "<=", ">="] and
+            isinstance(self.stack[start_idx + 2], tuple) and self.stack[start_idx + 2][0] == "Expr"):
 
-        # Try to reduce unary not operator: ! e -> UnaryOp
-        if len(self.stack) >= 2:
-            if (self.stack[-2] == "!" and
+            _, left = self.stack[start_idx]
+            op = self.stack[start_idx + 1]
+            _, right = self.stack[start_idx + 2]
+            self.stack[start_idx:start_idx + 3] = [("Expr", BinOp(op, left, right))]
+            self.debug_print(f"Reduced binary operation: {left} {op} {right}")
+            return True
+        return False
+
+    def try_reduce_if_expression(self) -> bool:
+        """Try to reduce an if expression"""
+        if len(self.stack) >= 6:
+            if (self.stack[-6] == "if" and
+                isinstance(self.stack[-5], tuple) and self.stack[-5][0] == "Expr" and
+                self.stack[-4] == "then" and
+                isinstance(self.stack[-3], tuple) and self.stack[-3][0] == "Expr" and
+                self.stack[-2] == "else" and
                 isinstance(self.stack[-1], tuple) and self.stack[-1][0] == "Expr"):
-                _, expr = self.stack[-1]
-                self.stack = self.stack[:-2]
-                self.stack.append(("Expr", UnaryOp("!", expr)))
-                self.debug_print(f"Reduced not: !{expr}")
+
+                _, cond = self.stack[-5]
+                _, then_expr = self.stack[-3]
+                _, else_expr = self.stack[-1]
+                self.stack = self.stack[:-6]
+                self.stack.append(("Expr", If(cond, then_expr, else_expr)))
+                self.debug_print(f"Reduced if: if {cond} then {then_expr} else {else_expr}")
                 return True
 
-        # Try to reduce lambda expressions: λ x . e -> Lambda
+        return False
+
+    def try_reduce_lambda(self) -> bool:
+        """Try to reduce a lambda expression"""
         if len(self.stack) >= 4:
-            if (self.stack[-4] == "λ" and 
-                isinstance(self.stack[-3], tuple) and 
+            if (self.stack[-4] == "λ" and
+                isinstance(self.stack[-3], tuple) and
                 self.stack[-2] == "." and
                 isinstance(self.stack[-1], tuple) and self.stack[-1][0] == "Expr"):
 
@@ -185,11 +156,13 @@ class FunctionalParser:
                 self.stack.append(("Expr", Function(var_expr, body)))
                 self.debug_print(f"Reduced lambda: λ{var_expr}.{body}")
                 return True
+        return False
 
-        # Try to reduce function application: ( e1 e2 ... en ) -> Apply
+    def try_reduce_application(self) -> bool:
+        """Try to reduce a function application"""
+        # Look for a sequence of expressions inside parentheses
         if len(self.stack) >= 4:
-            if (self.stack[-1] == ")" and
-                any(item == "(" for item in self.stack)):
+            if self.stack[-1] == ")":
                 # Find the matching opening parenthesis
                 depth = 1
                 pos = -2
@@ -199,44 +172,80 @@ class FunctionalParser:
                     elif self.stack[pos] == "(":
                         depth -= 1
                     pos -= 1
-                pos += 1  # Adjust for last decrement
-                
+                pos += 1
+
                 if depth == 0:
                     # Extract all expressions between parentheses
                     exprs = []
                     for item in self.stack[pos+1:-1]:
                         if isinstance(item, tuple) and item[0] == "Expr":
                             exprs.append(item[1])
-                    
+
                     if len(exprs) >= 2:
                         # Fold multiple applications from left to right
                         result = exprs[0]
                         for arg in exprs[1:]:
                             result = Apply(result, arg)
-                        
+
                         self.stack = self.stack[:pos] + [("Expr", result)]
                         self.debug_print(f"Reduced application: {result}")
                         return True
+        return False
 
-        # Try to reduce let expressions: let x = e1 in e2 -> Let
+    def try_reduce_let(self) -> bool:
+        """Try to reduce a let expression"""
         if len(self.stack) >= 6:
             if (self.stack[-6] == "let" and
-                isinstance(self.stack[-5], tuple) and self.stack[-5][0] == "Expr" and
+                isinstance(self.stack[-5], tuple) and
                 self.stack[-4] == "=" and
                 isinstance(self.stack[-3], tuple) and self.stack[-3][0] == "Expr" and
                 self.stack[-2] == "in" and
                 isinstance(self.stack[-1], tuple) and self.stack[-1][0] == "Expr"):
 
-                # Extract the variable from the first Expr (which should be a Var)
+                # Extract the variable
                 _, var_expr = self.stack[-5]
                 if not isinstance(var_expr, Var):
-                    return False
+                    if isinstance(var_expr, str):
+                        var_expr = Var(var_expr)
+                    else:
+                        return False
 
                 _, value = self.stack[-3]
                 _, body = self.stack[-1]
                 self.stack = self.stack[:-6]
                 self.stack.append(("Expr", Let(var_expr, value, body)))
                 self.debug_print(f"Reduced let: let {var_expr} = {value} in {body}")
+                return True
+        return False
+
+    def try_grammar_reduction(self) -> bool:
+        """
+        Attempt to reduce according to grammar rules.
+        """
+        if len(self.stack) < 2:
+            return False
+
+        # Try reductions in order of precedence
+        if self.try_reduce_if_expression():
+            return True
+
+        if self.try_reduce_lambda():
+            return True
+
+        if self.try_reduce_application():
+            return True
+
+        if self.try_reduce_let():
+            return True
+
+        # Try to reduce unary not operator: ! e -> UnaryOp
+        if len(self.stack) >= 2:
+            if (self.stack[-2] == "!" and
+                isinstance(self.stack[-1], tuple) and self.stack[-1][0] == "Expr"):
+                _, expr = self.stack[-1]
+                self.stack = self.stack[:-2]
+                self.stack.append(("Expr", UnaryOp("!", expr)))
+                self.debug_print(f"Reduced not: !{expr}")
                 return True
 
         # Try to reduce parenthesized expressions
@@ -252,38 +261,7 @@ class FunctionalParser:
 
         # Try to reduce arithmetic, boolean, and comparison expressions
         if len(self.stack) >= 3:
-            if (isinstance(self.stack[-3], tuple) and self.stack[-3][0] == "Expr" and
-                self.stack[-2] in ["+", "-", "*", "/", "&", "|", ">", "<", "==", "<=", ">="] and
-                isinstance(self.stack[-1], tuple) and self.stack[-1][0] == "Expr"):
-
-                _, left = self.stack[-3]
-                op = self.stack[-2]
-                _, right = self.stack[-1]
-                self.stack = self.stack[:-3]
-                self.stack.append(("Expr", BinOp(op, left, right)))
-                self.debug_print(f"Reduced binary operation: {left} {op} {right}")
-                return True
-
-        # Reduce basic expressions (integers and identifiers)
-        if len(self.stack) >= 1:
-            top = self.stack[-1]
-            if isinstance(top, tuple):
-                if top[0] == "INT_LITERAL":
-                    self.stack.pop()
-                    self.stack.append(("Expr", Int(top[1])))
-                    self.debug_print(f"Reduced to Expr: {top[1]}")
-                    return True
-                elif top[0] == "IDENTIFIER":
-                    self.stack.pop()
-                    self.stack.append(("Expr", Var(top[1])))
-                    self.debug_print(f"Reduced to Expr: {top[1]}")
-                    return True
-            # Handle raw integers that haven't been converted to INT_LITERAL yet
-            elif isinstance(top, str) and top.isdigit():
-                self.stack.pop()
-                self.stack.append(("Expr", Int(int(top))))
-                self.debug_print(f"Reduced integer directly to Expr: {top}")
-                return True
+            return self.reduce_binary_operation(len(self.stack) - 3)
 
         return False
 
@@ -300,8 +278,12 @@ class FunctionalParser:
             self.debug_print(f"Buffer: {self.buffer}")
 
             # Try reductions
-            while self.try_terminal_reduction() or self.try_grammar_reduction():
-                pass
+            reduced = True
+            while reduced:
+                reduced = False
+                # Try all possible reductions
+                while self.try_terminal_reduction() or self.try_grammar_reduction():
+                    reduced = True
 
             # If we can't reduce and have items in buffer, shift
             if self.buffer:
@@ -314,3 +296,10 @@ class FunctionalParser:
                     return self.stack[0][1]
                 else:
                     raise ValueError(f"Parsing failed. Final stack: {self.stack}")
+
+
+if __name__ == '__main__':
+    parser = FunctionalParser([], {})
+    expr = input('Enter an expression: ')
+    ast = parser.parse(expr)
+    print(f"AST(raw): {ast.raw_structure()}")

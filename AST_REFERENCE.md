@@ -48,6 +48,13 @@ Let(name: Var, value: ASTNode, body: ASTNode)
 ```
 Example: `let x = 1 in x` → `Let(Var("x"), Int(1), Var("x"))`
 
+### If
+Represents conditional expressions
+```python
+If(cond: ASTNode, then_expr: ASTNode, else_expr: ASTNode)
+```
+Example: `if x > 0 then x else 0` → `If(BinOp(">", Var("x"), Int(0)), Var("x"), Int(0))`
+
 ### BinOp
 Represents binary operations
 ```python

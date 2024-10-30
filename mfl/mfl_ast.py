@@ -1,16 +1,207 @@
 """
-This module provides an interpreter for an Abstract Syntax Tree (AST) representing a simple functional language.
-
-The interpreter evaluates expressions in the AST, handling variables, functions, applications, basic arithmetic operations,
-and comparison operations.
+This module defines the Abstract Syntax Tree (AST) nodes and provides an interpreter
+for a simple functional language.
 """
-from typing import Union, Dict
-from mfl_type_checker import ASTNode, Var, Function, Apply, Let, Int, Bool, BinOp, UnaryOp
+import dataclasses
+from typing import Union, Dict, Any, Optional
 
+# AST Node Classes
+class ASTNode:
+    """Base class for all AST nodes with raw structure printing capability"""
+    def __init__(self):
+        self.type: Optional['MonoType'] = None
 
+    def raw_structure(self):
+        """Return the raw AST structure as a string"""
+        if isinstance(self, Var):
+            return f'Var("{self.name}")'
+        elif isinstance(self, Int):
+            return f'Int({self.value})'
+        elif isinstance(self, Bool):
+            return f'Bool({self.value})'
+        elif isinstance(self, Function):
+            return f'Function({self.arg.raw_structure()}, {self.body.raw_structure()})'
+        elif isinstance(self, Apply):
+            return f'Apply({self.func.raw_structure()}, {self.arg.raw_structure()})'
+        elif isinstance(self, Let):
+            return f'Let({self.name.raw_structure()}, {self.value.raw_structure()}, {self.body.raw_structure()})'
+        elif isinstance(self, If):
+            return f'If({self.cond.raw_structure()}, {self.then_expr.raw_structure()}, {self.else_expr.raw_structure()})'
+        elif isinstance(self, BinOp):
+            return f'BinOp("{self.op}", {self.left.raw_structure()}, {self.right.raw_structure()})'
+        elif isinstance(self, UnaryOp):
+            return f'UnaryOp("{self.op}", {self.operand.raw_structure()})'
+        return str(self)
+
+    def typed_structure(self):
+        """Return the raw AST structure as a string with type annotations"""
+        type_str = f"<{self.type}>" if self.type else "<untyped>"
+        if isinstance(self, Var):
+            return f'Var{type_str}("{self.name}")'
+        elif isinstance(self, Int):
+            return f'Int{type_str}({self.value})'
+        elif isinstance(self, Bool):
+            return f'Bool{type_str}({self.value})'
+        elif isinstance(self, Function):
+            return f'Function{type_str}({self.arg.typed_structure()}, {self.body.typed_structure()})'
+        elif isinstance(self, Apply):
+            return f'Apply{type_str}({self.func.typed_structure()}, {self.arg.typed_structure()})'
+        elif isinstance(self, Let):
+            return f'Let{type_str}({self.name.typed_structure()}, {self.value.typed_structure()}, {self.body.typed_structure()})'
+        elif isinstance(self, If):
+            return f'If{type_str}({self.cond.typed_structure()}, {self.then_expr.typed_structure()}, {self.else_expr.typed_structure()})'
+        elif isinstance(self, BinOp):
+            return f'BinOp{type_str}("{self.op}", {self.left.typed_structure()}, {self.right.typed_structure()})'
+        elif isinstance(self, UnaryOp):
+            return f'UnaryOp{type_str}("{self.op}", {self.operand.typed_structure()})'
+        return str(self)
+
+@dataclasses.dataclass
+class Var(ASTNode):
+    """
+    Represents a variable reference in the program.
+    Example: x
+    """
+    name: str
+
+    def __post_init__(self):
+        super().__init__()
+
+    def __repr__(self):
+        return self.name
+
+@dataclasses.dataclass
+class Int(ASTNode):
+    """
+    Represents an integer literal.
+    Example: 42
+    """
+    value: int
+
+    def __post_init__(self):
+        super().__init__()
+
+    def __eq__(self, other):  # Overload the equality operator
+        return self.value == other
+
+    def __repr__(self):
+        return str(self.value)
+
+@dataclasses.dataclass
+class Bool(ASTNode):
+    """
+    Represents a boolean literal.
+    Example: True, False
+    """
+    value: bool
+
+    def __post_init__(self):
+        super().__init__()
+
+    def __eq__(self, other):  # Overload the equality operator
+        return self.value == other
+
+    def __repr__(self):
+        return str(self.value)
+
+@dataclasses.dataclass
+class Function(ASTNode):
+    """
+    Represents a lambda function.
+    Example: λx.x (the identity function)
+    """
+    arg: Var
+    body: Any  # Expression for the body
+
+    def __post_init__(self):
+        super().__init__()
+
+    def __repr__(self):
+        return f"λ{self.arg}.{self.body}"
+
+@dataclasses.dataclass
+class Apply(ASTNode):
+    """
+    Represents function application.
+    Example: (f x) applies function f to argument x
+    """
+    func: Any  # The function being applied
+    arg: Any   # The argument being passed
+
+    def __post_init__(self):
+        super().__init__()
+
+    def __repr__(self):
+        return f"({self.func} {self.arg})"
+
+@dataclasses.dataclass
+class Let(ASTNode):
+    """
+    Represents let bindings.
+    Example: let x = e1 in e2
+    Allows local variable definitions
+    """
+    name: Var
+    value: Any  # Value expression
+    body: Any   # Body expression where the value is bound
+
+    def __post_init__(self):
+        super().__init__()
+
+    def __repr__(self):
+        return f"let {self.name} = {self.value} in {self.body}"
+
+@dataclasses.dataclass
+class If(ASTNode):
+    """
+    Represents a conditional expression.
+    Example: if x > 0 then x else 0
+    """
+    cond: Any      # Condition expression
+    then_expr: Any # Expression for the 'then' branch
+    else_expr: Any # Expression for the 'else' branch
+
+    def __post_init__(self):
+        super().__init__()
+
+    def __repr__(self):
+        return f"if {self.cond} then {self.then_expr} else {self.else_expr}"
+
+@dataclasses.dataclass
+class BinOp(ASTNode):
+    """
+    Represents binary operations (+, -, *, /, &, |, >, <, ==, <=, >=).
+    Example: x + y, a & b, x > y
+    """
+    op: str  # One of: '+', '-', '*', '/', '&', '|', '>', '<', '==', '<=', '>='
+    left: Any
+    right: Any
+
+    def __post_init__(self):
+        super().__init__()
+
+    def __repr__(self):
+        return f"({self.left} {self.op} {self.right})"
+
+@dataclasses.dataclass
+class UnaryOp(ASTNode):
+    """
+    Represents unary operations (!).
+    Example: !x
+    """
+    op: str  # Currently only '!'
+    operand: Any
+
+    def __post_init__(self):
+        super().__init__()
+
+    def __repr__(self):
+        return f"{self.op}{self.operand}"
+
+# AST Interpreter
 class ASTInterpreter:
     """
-    An interpreter for the AST.  It maintains an environment to store variable bindings.
+    An interpreter for the AST. It maintains an environment to store variable bindings.
     """
     def __init__(self, verbose: bool = False):
         """Initializes the interpreter with an empty environment."""
@@ -20,12 +211,6 @@ class ASTInterpreter:
     def eval(self, node: ASTNode) -> ASTNode:
         """
         Evaluates the given AST node.
-
-        Args:
-            node: The AST node to evaluate.
-
-        Returns:
-            The result of the evaluation.
         """
         if self.verbose:
             print(f"Evaluating {type(node).__name__}: {node}")
@@ -62,20 +247,6 @@ class ASTInterpreter:
                         print(f"Curried function result: {result}")
                     return result
 
-                # Primitive operation handling (addition and multiplication)
-                if isinstance(func.body, BinOp):
-                    if isinstance(arg, Int) and isinstance(func.body.left, Int) and isinstance(func.body.right, Int):
-                        if func.body.op == "+":
-                            result = Int(func.body.left.value + func.body.right.value)
-                            if self.verbose:
-                                print(f"Primitive addition result: {result}")
-                            return result
-                        elif func.body.op == "*":
-                            result = Int(func.body.left.value * func.body.right.value)
-                            if self.verbose:
-                                print(f"Primitive multiplication result: {result}")
-                            return result
-
                 # Regular function application
                 if self.verbose:
                     print(f"Substituting {arg} for {func.arg} in {func.body}")
@@ -95,6 +266,22 @@ class ASTInterpreter:
             if self.verbose:
                 print(f"Evaluating let body: {node.body}")
             return self.eval(node.body)
+
+        # If expression handling
+        elif isinstance(node, If):
+            if self.verbose:
+                print(f"Evaluating if condition: {node.cond}")
+            cond_result = self.eval(node.cond)
+            if isinstance(cond_result, Bool):
+                if cond_result.value:
+                    if self.verbose:
+                        print(f"Condition is true, evaluating then branch: {node.then_expr}")
+                    return self.eval(node.then_expr)
+                else:
+                    if self.verbose:
+                        print(f"Condition is false, evaluating else branch: {node.else_expr}")
+                    return self.eval(node.else_expr)
+            return If(cond_result, node.then_expr, node.else_expr)
 
         # Binary operation handling
         elif isinstance(node, BinOp):
@@ -157,15 +344,7 @@ class ASTInterpreter:
 
     def substitute(self, expr: ASTNode, var: Var, value: ASTNode) -> ASTNode:
         """
-        Substitutes 'value' for 'var' in 'expr'.  This is a recursive function that traverses the AST.
-
-        Args:
-            expr: The expression to substitute in.
-            var: The variable to replace.
-            value: The value to substitute.
-
-        Returns:
-            The expression with the substitution applied.
+        Substitutes 'value' for 'var' in 'expr'.
         """
         if isinstance(expr, Var):
             return value if expr.name == var.name else expr
@@ -195,19 +374,17 @@ class ASTInterpreter:
             new_value = self.substitute(expr.value, var, value)
             new_body = self.substitute(expr.body, var, value)
             return Let(expr.name, new_value, new_body)
+        elif isinstance(expr, If):
+            return If(
+                self.substitute(expr.cond, var, value),
+                self.substitute(expr.then_expr, var, value),
+                self.substitute(expr.else_expr, var, value)
+            )
         return expr
-
 
 def execute_ast(ast: ASTNode, verbose: bool = False) -> ASTNode:
     """
     Executes an AST using the AST interpreter.
-
-    Args:
-        ast: The AST to execute.
-        verbose: Whether to print verbose output.
-
-    Returns:
-        The result of the execution.
     """
     machine = ASTInterpreter(verbose)
     if verbose:
@@ -216,30 +393,3 @@ def execute_ast(ast: ASTNode, verbose: bool = False) -> ASTNode:
     if verbose:
         print(f"Final result: {result}")
     return result
-
-if __name__ == "__main__":
-    # Example usage (assuming AST tree is constructed accordingly):
-    ast_interpreter = ASTInterpreter()
-
-    # Example, identity function: λx.x applied to 42
-    result = ast_interpreter.eval(Apply(Function(Var("x"), Var("x")), Int(42)))
-    assert result == 42
-    print(result)
-
-    # Example, double function: λx.x*2 applied to 3
-    result = ast_interpreter.eval(Let(Var("double"), Function(Var("x"), BinOp("*", Var("x"), Int(2))), Apply(Var("double"), Int(3))))
-    assert result == 6
-    print(result)
-
-    # Example: let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x + 1) in let double = λx.(x + x) in (((compose double) add1) 4)
-    compose = Let(Var("compose"), 
-                 Function(Var("f"), Function(Var("g"), Function(Var("x"), 
-                         Apply(Var("f"), Apply(Var("g"), Var("x")))))),
-                 Let(Var("add1"), 
-                     Function(Var("x"), BinOp("+", Var("x"), Int(1))),
-                     Let(Var("double"), 
-                         Function(Var("x"), BinOp("+", Var("x"), Var("x"))),
-                         Apply(Apply(Apply(Var("compose"), Var("double")), Var("add1")), Int(4)))))
-    result = ast_interpreter.eval(compose)
-    assert result == 10
-    print(result)
