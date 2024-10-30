@@ -26,6 +26,61 @@ class Plus(Combinator):
     def __init__(self):
         super().__init__("+")
 
+class Minus(Combinator):
+    """Primitive subtraction combinator."""
+    def __init__(self):
+        super().__init__("-")
+
+class Multiply(Combinator):
+    """Primitive multiplication combinator."""
+    def __init__(self):
+        super().__init__("*")
+
+class Divide(Combinator):
+    """Primitive division combinator."""
+    def __init__(self):
+        super().__init__("/")
+
+class GreaterThan(Combinator):
+    """Greater than comparison combinator."""
+    def __init__(self):
+        super().__init__(">")
+
+class LessThan(Combinator):
+    """Less than comparison combinator."""
+    def __init__(self):
+        super().__init__("<")
+
+class GreaterEqual(Combinator):
+    """Greater than or equal comparison combinator."""
+    def __init__(self):
+        super().__init__(">=")
+
+class LessEqual(Combinator):
+    """Less than or equal comparison combinator."""
+    def __init__(self):
+        super().__init__("<=")
+
+class Equal(Combinator):
+    """Equality comparison combinator."""
+    def __init__(self):
+        super().__init__("==")
+
+class And(Combinator):
+    """Logical AND combinator."""
+    def __init__(self):
+        super().__init__("&&")
+
+class Or(Combinator):
+    """Logical OR combinator."""
+    def __init__(self):
+        super().__init__("||")
+
+class Not(Combinator):
+    """Logical NOT combinator."""
+    def __init__(self):
+        super().__init__("!")
+
 class SKIMachine:
     def __init__(self, verbose=False):
         self.verbose = verbose
@@ -33,6 +88,17 @@ class SKIMachine:
         self.k = K()
         self.i = I()
         self.plus = Plus()
+        self.minus = Minus()
+        self.multiply = Multiply()
+        self.divide = Divide()
+        self.gt = GreaterThan()
+        self.lt = LessThan()
+        self.ge = GreaterEqual()
+        self.le = LessEqual()
+        self.eq = Equal()
+        self.and_ = And()
+        self.or_ = Or()
+        self.not_ = Not()
 
     def eval(self, node: ASTNode) -> ASTNode:
         """Evaluates the AST node by first converting to SKI combinators and then reducing."""
@@ -67,12 +133,30 @@ class SKIMachine:
             # Convert let to lambda application
             return self.to_ski(Apply(Function(node.name, node.body), node.value))
 
-        if isinstance(node, BinOp) and node.op == "+":
-            # Convert addition to primitive combinator application
-            return Apply(
-                Apply(self.plus, self.to_ski(node.left)),
-                self.to_ski(node.right)
-            )
+        if isinstance(node, BinOp):
+            left = self.to_ski(node.left)
+            right = self.to_ski(node.right)
+            
+            # Map operators to combinators
+            op_map = {
+                "+": self.plus,
+                "-": self.minus,
+                "*": self.multiply,
+                "/": self.divide,
+                ">": self.gt,
+                "<": self.lt,
+                ">=": self.ge,
+                "<=": self.le,
+                "==": self.eq,
+                "&&": self.and_,
+                "||": self.or_
+            }
+            
+            if node.op in op_map:
+                return Apply(Apply(op_map[node.op], left), right)
+
+        if isinstance(node, UnaryOp) and node.op == "!":
+            return Apply(self.not_, self.to_ski(node.expr))
 
         return node
 
@@ -133,10 +217,41 @@ class SKIMachine:
             x = arg
             return Apply(Apply(f, x), Apply(g, x))
 
-        # Handle primitive addition
-        if isinstance(func, Apply) and isinstance(func.func, Plus):
+        # Handle arithmetic operations
+        if isinstance(func, Apply):
             if isinstance(func.arg, Int) and isinstance(arg, Int):
-                return Int(func.arg.value + arg.value)
+                if isinstance(func.func, Plus):
+                    return Int(func.arg.value + arg.value)
+                elif isinstance(func.func, Minus):
+                    return Int(func.arg.value - arg.value)
+                elif isinstance(func.func, Multiply):
+                    return Int(func.arg.value * arg.value)
+                elif isinstance(func.func, Divide) and arg.value != 0:
+                    return Int(func.arg.value // arg.value)
+
+            # Handle comparison operations
+            if isinstance(func.arg, Int) and isinstance(arg, Int):
+                if isinstance(func.func, GreaterThan):
+                    return Bool(func.arg.value > arg.value)
+                elif isinstance(func.func, LessThan):
+                    return Bool(func.arg.value < arg.value)
+                elif isinstance(func.func, GreaterEqual):
+                    return Bool(func.arg.value >= arg.value)
+                elif isinstance(func.func, LessEqual):
+                    return Bool(func.arg.value <= arg.value)
+                elif isinstance(func.func, Equal):
+                    return Bool(func.arg.value == arg.value)
+
+            # Handle boolean operations
+            if isinstance(func.arg, Bool) and isinstance(arg, Bool):
+                if isinstance(func.func, And):
+                    return Bool(func.arg.value and arg.value)
+                elif isinstance(func.func, Or):
+                    return Bool(func.arg.value or arg.value)
+
+        # Handle unary operations
+        if isinstance(func, Not) and isinstance(arg, Bool):
+            return Bool(not arg.value)
 
         # If no reduction rule applies, reconstruct with reduced parts
         if func != node.func or arg != node.arg:
