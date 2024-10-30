@@ -9,7 +9,7 @@ declare i32 @printf(i8* nocapture readonly, ...)
 @.str.false = private unnamed_addr constant [6 x i8] c"false\00"
 
 ; -----------------------------------------------------------------------------
-; This is code (hand) generated from: "let add = λx.λy.(x+y) in (add 3 4)"
+; This is code (hand) generated from"let add = λx.λy.(x+y) in (add 3 4)": 
 ; -----------------------------------------------------------------------------
 
 ; Define a struct to hold the arguments for the lambda functions

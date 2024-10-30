@@ -9,7 +9,7 @@ Key features implemented:
 - Integer literals
 - Boolean literals
 - Variables
-- Lambda functions (as LLVM functions)
+- Lambda functions (as LLVM functions with currying support)
 - Function applications
 - Let bindings
 - Basic arithmetic and comparison operations
@@ -29,12 +29,10 @@ def find_target_triple() -> str:
     """
     try:
         result = subprocess.run(['clang', '--version'], capture_output=True, text=True, check=True)
-        # Parsing the output varies greatly depending on the compiler.  This is just an example; adapt it accordingly.
         output_lines = result.stdout.splitlines()
         for line in output_lines:
             if "Target:" in line:
                 target_triple = line.split(": ")[1].strip()
-                #print(f'target triple = "{target_triple}"')
                 return target_triple
     except subprocess.CalledProcessError as e:
         print(f"Error executing clang: {e}")
@@ -55,6 +53,7 @@ class LLVMGenerator:
         self.declarations = []
         self.definitions = []
         self.verbose = verbose
+        self.lambda_depth = 0  # Track nested lambda depth
         self._init_runtime()
 
     def debug(self, msg: str):
@@ -65,8 +64,6 @@ class LLVMGenerator:
     def _init_runtime(self):
         """Initialize LLVM IR with necessary declarations"""
         target_triple = find_target_triple()
-        # FIXME not perfect since the found 'clang --version' is overridden by clang at compilation...why?
-        # 'target triple = "arm64-apple-macosx14.0.0"',
         self.declarations.extend([
             "; MFL to LLVM IR Compiler Output",
             "",
@@ -79,6 +76,9 @@ class LLVMGenerator:
             '@.str.bool = private unnamed_addr constant [3 x i8] c"%s\00"',
             '@.str.true = private unnamed_addr constant [5 x i8] c"true\00"',
             '@.str.false = private unnamed_addr constant [6 x i8] c"false\00"',
+            "",
+            "; Define a struct to hold the arguments for the lambda functions",
+            "%lambda_args = type { i32, i32, i32 }",
             ""
         ])
 
@@ -139,46 +139,56 @@ class LLVMGenerator:
         self.debug(f"Generating variable reference: {node.name}")
         if node.name in self.variables:
             load_reg = self.fresh_var("load")
-            var_type = self.variables[node.name][1]
-            if var_type == "function":
+            var_info = self.variables[node.name]
+            if var_info[1] == "function":
                 self.debug(f"Loading function pointer: {node.name}")
-                self.definitions.append(f"    {load_reg} = load i32 (i32)*, i32 (i32)** {self.variables[node.name][0]}")
+                self.definitions.append(f"    {load_reg} = load i32 (%lambda_args*)*, i32 (%lambda_args*)** {var_info[0]}")
                 return load_reg, "function"
             else:
                 self.debug(f"Loading variable value: {node.name}")
-                self.definitions.append(f"    {load_reg} = load i32, i32* {self.variables[node.name][0]}")
+                self.definitions.append(f"    {load_reg} = load i32, i32* {var_info[0]}")
                 return load_reg, "i32"
         raise ValueError(f"Undefined variable: {node.name}")
 
     def generate_function(self, node: Function) -> Tuple[str, str]:
-        """Generate LLVM IR for function definition"""
+        """Generate LLVM IR for function definition with currying support"""
         self.debug(f"Generating function with argument: {node.arg.name}")
-        func_name = f"@func_{self.fresh_counter}"
-        self.fresh_counter += 1
+        
+        # Generate unique function name based on lambda depth
+        func_name = f"@lambda_{self.lambda_depth}"
+        self.lambda_depth += 1
 
-        # Save current function context
+        # Save current context
         old_function = self.current_function
         old_variables = self.variables.copy()
         old_definitions = self.definitions
 
         self.current_function = func_name
-        self.variables = {}
+        self.variables = old_variables.copy()  # Keep outer scope variables
         self.definitions = []
 
-        # Function header
+        # Function header with lambda_args struct
         self.definitions.extend([
-            f"define i32 {func_name}(i32 %{node.arg.name}) {{",
+            f"define i32 {func_name}(%lambda_args* %args) {{",
             "entry:"
         ])
 
-        # Store argument in alloca
-        arg_ptr = self.fresh_var("arg_ptr")
-        self.definitions.append(f"    {arg_ptr} = alloca i32")
-        self.definitions.append(f"    store i32 %{node.arg.name}, i32* {arg_ptr}")
-        self.variables[node.arg.name] = (arg_ptr, "i32")
+        # Get argument from the lambda_args struct
+        arg_ptr = self.fresh_var(f"arg_{node.arg.name}_ptr")
+        arg_val = self.fresh_var(f"arg_{node.arg.name}")
+        idx = self.lambda_depth - 1
+        self.definitions.extend([
+            f"    {arg_ptr} = getelementptr %lambda_args, %lambda_args* %args, i32 0, i32 {idx}",
+            f"    {arg_val} = load i32, i32* {arg_ptr}"
+        ])
+
+        # Store argument in local variable
+        local_ptr = self.fresh_var(f"local_{node.arg.name}")
+        self.definitions.append(f"    {local_ptr} = alloca i32")
+        self.definitions.append(f"    store i32 {arg_val}, i32* {local_ptr}")
+        self.variables[node.arg.name] = (local_ptr, "i32")
 
         # Generate function body
-        self.debug("Generating function body")
         body_reg, body_type = self.generate(node.body)
 
         # Return the result
@@ -189,28 +199,39 @@ class LLVMGenerator:
 
         # Add function definition to declarations
         func_def = "\n".join(self.definitions)
+        self.declarations.append("")
+        self.declarations.extend(func_def.split("\n"))
 
-        # Restore function context
+        # Restore context
         self.current_function = old_function
         self.variables = old_variables
         self.definitions = old_definitions
 
-        # Add function definition to declarations
-        self.declarations.append("")  # Add blank line before function
-        self.declarations.extend(func_def.split("\n"))
-
-        self.debug(f"Completed function definition: {func_name}")
         return func_name, "function"
 
     def generate_apply(self, node: Apply) -> Tuple[str, str]:
-        """Generate LLVM IR for function application"""
+        """Generate LLVM IR for function application with currying support"""
         self.debug("Generating function application")
+        
+        # Generate code for function and argument
         func_reg, func_type = self.generate(node.func)
         arg_reg, arg_type = self.generate(node.arg)
 
+        # Allocate and initialize lambda_args struct
+        args_ptr = self.fresh_var("lambda_args")
+        self.definitions.append(f"    {args_ptr} = alloca %lambda_args")
+
+        # Store argument in the struct
+        arg_ptr = self.fresh_var("arg_ptr")
+        self.definitions.extend([
+            f"    {arg_ptr} = getelementptr %lambda_args, %lambda_args* {args_ptr}, i32 0, i32 0",
+            f"    store i32 {arg_reg}, i32* {arg_ptr}"
+        ])
+
+        # Call function with lambda_args struct
         result_reg = self.fresh_var("call")
-        self.debug(f"Calling function {func_reg} with argument {arg_reg}")
-        self.definitions.append(f"    {result_reg} = call i32 {func_reg}(i32 {arg_reg})")
+        self.definitions.append(f"    {result_reg} = call i32 {func_reg}(%lambda_args* {args_ptr})")
+        
         return result_reg, "i32"
 
     def generate_let(self, node: Let) -> Tuple[str, str]:
@@ -222,8 +243,8 @@ class LLVMGenerator:
         if value_type == "function":
             self.debug(f"Storing function pointer in: {node.name.name}")
             ptr_reg = self.fresh_var(f"{node.name.name}_ptr")
-            self.definitions.append(f"    {ptr_reg} = alloca i32 (i32)*")
-            self.definitions.append(f"    store i32 (i32)* {value_reg}, i32 (i32)** {ptr_reg}")
+            self.definitions.append(f"    {ptr_reg} = alloca i32 (%lambda_args*)*")
+            self.definitions.append(f"    store i32 (%lambda_args*)* {value_reg}, i32 (%lambda_args*)** {ptr_reg}")
             self.variables[node.name.name] = (ptr_reg, "function")
         else:
             self.debug(f"Storing value in: {node.name.name}")
@@ -313,7 +334,7 @@ class LLVMGenerator:
             ])
 
         self.definitions.extend([
-            "    ret i32 0",
+            f"    ret i32 0",
             "}"
         ])
 
