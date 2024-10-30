@@ -137,7 +137,7 @@ SECD instructions: [('LDF', [('LDF', [('LD', (1, 0)), ('LD', (0, 0)), 'ADD', 'RE
 SECD machine result: 5
 ```
 
-Function composition, using the SKI machine (which is not really working, but fun to try):
+Function composition, using the SKI machine:
 ```bash
 python3 mfl.py -k  "let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x+1) in let double = λx.(x+x) in ((compose double add1) 2)"
 Successfully parsed!

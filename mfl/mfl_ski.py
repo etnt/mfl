@@ -21,6 +21,31 @@ class I(Combinator):
     def __init__(self):
         super().__init__("I")
 
+class B(Combinator):
+    """B combinator: B f g x → f (g x)"""
+    def __init__(self):
+        super().__init__("B")
+
+class C(Combinator):
+    """C combinator: C f g x → f x g"""
+    def __init__(self):
+        super().__init__("C")
+
+class SPrime(Combinator):
+    """S' combinator: S' c f g x → c (f x) (g x)"""
+    def __init__(self):
+        super().__init__("S'")
+
+class BStar(Combinator):
+    """B* combinator: B* c f g x → c (f (g x))"""
+    def __init__(self):
+        super().__init__("B*")
+
+class CPrime(Combinator):
+    """C' combinator: C' c f g x → c (f x) g"""
+    def __init__(self):
+        super().__init__("C'")
+
 class Plus(Combinator):
     """Primitive addition combinator."""
     def __init__(self):
@@ -87,6 +112,11 @@ class SKIMachine:
         self.s = S()
         self.k = K()
         self.i = I()
+        self.b = B()
+        self.c = C()
+        self.s_prime = SPrime()
+        self.b_star = BStar()
+        self.c_prime = CPrime()
         self.plus = Plus()
         self.minus = Minus()
         self.multiply = Multiply()
@@ -216,6 +246,44 @@ class SKIMachine:
             g = func.arg
             x = arg
             return Apply(Apply(f, x), Apply(g, x))
+
+        # B combinator reduction: B f g x → f (g x)
+        if isinstance(func, Apply) and isinstance(func.func, Apply) and isinstance(func.func.func, B):
+            f = func.func.arg
+            g = func.arg
+            x = arg
+            return Apply(f, Apply(g, x))
+
+        # C combinator reduction: C f g x → f x g
+        if isinstance(func, Apply) and isinstance(func.func, Apply) and isinstance(func.func.func, C):
+            f = func.func.arg
+            g = func.arg
+            x = arg
+            return Apply(Apply(f, x), g)
+
+        # S' combinator reduction: S' c f g x → c (f x) (g x)
+        if isinstance(func, Apply) and isinstance(func.func, Apply) and isinstance(func.func.func, Apply) and isinstance(func.func.func.func, SPrime):
+            c = func.func.func.arg
+            f = func.func.arg
+            g = func.arg
+            x = arg
+            return Apply(Apply(c, Apply(f, x)), Apply(g, x))
+
+        # B* combinator reduction: B* c f g x → c (f (g x))
+        if isinstance(func, Apply) and isinstance(func.func, Apply) and isinstance(func.func.func, Apply) and isinstance(func.func.func.func, BStar):
+            c = func.func.func.arg
+            f = func.func.arg
+            g = func.arg
+            x = arg
+            return Apply(c, Apply(f, Apply(g, x)))
+
+        # C' combinator reduction: C' c f g x → c (f x) g
+        if isinstance(func, Apply) and isinstance(func.func, Apply) and isinstance(func.func.func, Apply) and isinstance(func.func.func.func, CPrime):
+            c = func.func.func.arg
+            f = func.func.arg
+            g = func.arg
+            x = arg
+            return Apply(Apply(c, Apply(f, x)), g)
 
         # Handle arithmetic operations
         if isinstance(func, Apply):
