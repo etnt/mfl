@@ -84,7 +84,7 @@ options:
   -l, --llvm            Generate LLVM IR and compile to binary code 
 ```
 
-Note: The SKI and G-machine backends are not working atm.
+Note: The LLVM- and G-machine backends are not working atm.
 
 ## Examples
 Example, generating BEAM code:
