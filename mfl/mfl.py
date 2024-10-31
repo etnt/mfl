@@ -20,6 +20,7 @@ def main():
     arg_parser = argparse.ArgumentParser(description='Parse and type-check functional programming expressions.')
     arg_parser.add_argument('expression', nargs='?', help='Expression to parse and type-check')
     arg_parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output from all modules')
+    arg_parser.add_argument('-f', '--frontend-only', action='store_true', help='Only run the parser and type checker')
     arg_parser.add_argument('-b', '--backend-verbose', action='store_true', help='Enable verbose output from backend')
     arg_parser.add_argument('-o', '--output', default="mfl", help='Output file name (without suffix)')
     arg_parser.add_argument('-s', '--secd', action='store_true', help='Execute using SECD machine')
@@ -45,6 +46,8 @@ def main():
                 expr_type = infer_j(ast, type_ctx)
                 print(f"AST(typed): {ast.typed_structure()}")
                 print(f"Inferred final type: {expr_type}")
+                if args.frontend_only:
+                    return
 
                 if args.secd:
                     try:
@@ -140,6 +143,7 @@ def main():
                         print(f"Error during code generation: {str(e)}")
 
             except Exception as e:
+                print(f"AST(raw): {ast.raw_structure()}")
                 print(f"Error during type checking: {str(e)}")
 
         except ValueError as e:
