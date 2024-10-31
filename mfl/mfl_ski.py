@@ -1,6 +1,6 @@
 # Import the ASTNode classes
 from typing import Union
-from mfl_ast import ASTNode, Var, Function, Apply, Let, Int, Bool, BinOp, UnaryOp
+from mfl_ast import ASTNode, Var, Function, Apply, Let, Int, Bool, BinOp, UnaryOp, If
 
 class Combinator(ASTNode):
     """Base class for combinators."""
@@ -106,6 +106,11 @@ class Not(Combinator):
     def __init__(self):
         super().__init__("!")
 
+class IfCombinator(Combinator):
+    """If-then-else combinator."""
+    def __init__(self):
+        super().__init__("if")
+
 class SKIMachine:
     def __init__(self, verbose=False):
         self.verbose = verbose
@@ -129,6 +134,7 @@ class SKIMachine:
         self.and_ = And()
         self.or_ = Or()
         self.not_ = Not()
+        self.if_comb = IfCombinator()
 
     def eval(self, node: ASTNode) -> ASTNode:
         """Evaluates the AST node by first converting to SKI combinators and then reducing."""
@@ -187,6 +193,13 @@ class SKIMachine:
 
         if isinstance(node, UnaryOp) and node.op == "!":
             return Apply(self.not_, self.to_ski(node.expr))
+
+        if isinstance(node, If):
+            # Convert if-then-else to: if cond then_expr else_expr
+            cond = self.to_ski(node.cond)
+            then_expr = self.to_ski(node.then_expr)
+            else_expr = self.to_ski(node.else_expr)
+            return Apply(Apply(Apply(self.if_comb, cond), then_expr), else_expr)
 
         return node
 
@@ -320,6 +333,15 @@ class SKIMachine:
         # Handle unary operations
         if isinstance(func, Not) and isinstance(arg, Bool):
             return Bool(not arg.value)
+
+        # Handle if-then-else reduction
+        if isinstance(func, Apply) and isinstance(func.func, Apply) and isinstance(func.func.func, IfCombinator):
+            cond = func.func.arg
+            then_expr = func.arg
+            else_expr = arg
+
+            if isinstance(cond, Bool):
+                return then_expr if cond.value else else_expr
 
         # If no reduction rule applies, reconstruct with reduced parts
         if func != node.func or arg != node.arg:

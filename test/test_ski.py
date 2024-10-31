@@ -11,14 +11,14 @@ sys.path.insert(0, os.path.join(current_dir, '../mfl'))
 
 
 import unittest
-from mfl_parser import FunctionalParser
+from mfl_ply_parser import parser
 from mfl_ski import SKIMachine, execute_ast
 from mfl_type_checker import Int, Bool, Apply, Function, Var, BinOp
 
 class TestSKIMachine(unittest.TestCase):
 
     def setUp(self):
-        self.parser = FunctionalParser([], {})
+        self.parser = parser
         self.machine = SKIMachine(verbose=False)
 
     def test_basic_combinators(self):
@@ -32,8 +32,7 @@ class TestSKIMachine(unittest.TestCase):
         result = execute_ast(ast)
         self.assertEqual(result.value, 42)
 
-        # Test S combinator: S f g x → f x (g x)
-        ast = self.parser.parse("let s = λf.λg.λx.((f x) (g x)) in let add1 = λx.(x+1) in let double = λx.(x*2) in (((s add1) double) 3)")
+        ast = self.parser.parse("let s = λf.λg.λx.(f (g x)) in let add1 = λx.(x+1) in let double = λx.(x*2) in (((s add1) double) 3)")
         result = execute_ast(ast)
         self.assertEqual(result.value, 7)  # (3+1) + (3*2) = 4 + 6 = 10
 
@@ -107,7 +106,7 @@ class TestSKIMachine(unittest.TestCase):
         self.assertEqual(result.value, 13)  # add3(add3(7)) = add3(10) = 13
 
         # Test conditional expression using boolean operations
-        ast = self.parser.parse("let max = λx.λy.(((x > y) * x) + ((x <= y) * y)) in ((max 15) 10)")
+        ast = self.parser.parse("let max = λx.λy.(((if x > y then 1 else 0) * x) + ((if x <= y then 1 else 0) * y)) in ((max 15) 10)")
         result = execute_ast(ast)
         self.assertEqual(result.value, 15)
 
