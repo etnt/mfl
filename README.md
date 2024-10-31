@@ -19,7 +19,7 @@ MFL is just a learning project, playing around with typical concepts of function
 ## Programs
 
 ### 1. MFL - Type Inference System (mfl_type_checker.py)
-An educational implementation of the Hindley-Milner type inference system, demonstrating how programming language type systems work. Includes polymorphic type inference, unification, and type checking with detailed documentation explaining core concepts.
+An educational implementation of the Hindley-Milner type inference system, demonstrating how programming language type systems work. Includes polymorphic type inference, unification, and type checking with detailed documentation explaining core concepts. This implementation was made after reading: [Damas-Hindley-Milner inference two ways](https://bernsteinbear.com/blog/type-inference/) and implements the Algorithm J.
 
 ### 2. MFL - PLY Parser and Lexer (mfl_ply_parser.py, mfl_ply_lexer.py)
 A modern parser implementation using PLY (Python Lex-Yacc) that replaced the older parser. The lexer defines tokens for all language features including lambda abstractions, let bindings, arithmetic operations, and boolean operations. The parser implements the grammar rules and builds an Abstract Syntax Tree (AST) from the token stream. This implementation provides better error handling and a more maintainable structure compared to the previous parser.
