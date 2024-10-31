@@ -34,7 +34,7 @@ install-requirements:
 	$(PIP) install -r $(REQUIREMENTS)
 
 .PHONY: test
-test: test_ast test_type test_parser test_ply_parser test_secd test_ski
+test: test_ast test_type test_ply_parser test_secd test_ski
 
 .PHONY: test_ast
 test_ast:

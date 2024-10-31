@@ -3,7 +3,10 @@ This module defines the Abstract Syntax Tree (AST) nodes and provides an interpr
 for a simple functional language.
 """
 import dataclasses
-from typing import Union, Dict, Any, Optional
+from typing import Union, Dict, Any, Optional, TypeVar
+
+# Type variable for monomorphic types
+MonoType = TypeVar('MonoType')
 
 # AST Node Classes
 class ASTNode:
@@ -25,6 +28,8 @@ class ASTNode:
             return f'Apply({self.func.raw_structure()}, {self.arg.raw_structure()})'
         elif isinstance(self, Let):
             return f'Let({self.name.raw_structure()}, {self.value.raw_structure()}, {self.body.raw_structure()})'
+        elif isinstance(self, LetRec):
+            return f'LetRec({self.name.raw_structure()}, {self.value.raw_structure()}, {self.body.raw_structure()})'
         elif isinstance(self, If):
             return f'If({self.cond.raw_structure()}, {self.then_expr.raw_structure()}, {self.else_expr.raw_structure()})'
         elif isinstance(self, BinOp):
@@ -48,6 +53,8 @@ class ASTNode:
             return f'Apply{type_str}({self.func.typed_structure()}, {self.arg.typed_structure()})'
         elif isinstance(self, Let):
             return f'Let{type_str}({self.name.typed_structure()}, {self.value.typed_structure()}, {self.body.typed_structure()})'
+        elif isinstance(self, LetRec):
+            return f'LetRec{type_str}({self.name.typed_structure()}, {self.value.typed_structure()}, {self.body.typed_structure()})'
         elif isinstance(self, If):
             return f'If{type_str}({self.cond.typed_structure()}, {self.then_expr.typed_structure()}, {self.else_expr.typed_structure()})'
         elif isinstance(self, BinOp):
@@ -150,6 +157,23 @@ class Let(ASTNode):
 
     def __repr__(self):
         return f"let {self.name} = {self.value} in {self.body}"
+
+@dataclasses.dataclass
+class LetRec(ASTNode):
+    """
+    Represents letrec bindings.
+    Example: letrec x = e1 in e2
+    Allows recursive function definitions
+    """
+    name: Var
+    value: Any  # Value expression
+    body: Any   # Body expression where the value is bound
+
+    def __post_init__(self):
+        super().__init__()
+
+    def __repr__(self):
+        return f"letrec {self.name} = {self.value} in {self.body}"
 
 @dataclasses.dataclass
 class If(ASTNode):
@@ -265,6 +289,24 @@ class ASTInterpreter:
             self.env[node.name.name] = value
             if self.verbose:
                 print(f"Evaluating let body: {node.body}")
+            return self.eval(node.body)
+
+        # LetRec expression handling
+        elif isinstance(node, LetRec):
+            if self.verbose:
+                print(f"Evaluating letrec binding for {node.name.name}")
+
+            # First ensure we have a function value
+            if not isinstance(node.value, Function):
+                raise ValueError("LetRec value must be a function")
+
+            # Create a recursive closure by adding the function to the environment
+            # before evaluating its body
+            func = node.value
+            self.env[node.name.name] = func
+
+            if self.verbose:
+                print(f"Evaluating letrec body: {node.body}")
             return self.eval(node.body)
 
         # If expression handling

@@ -20,7 +20,7 @@ class TestTypeChecker(unittest.TestCase):
         expr = Var("x")
         inferred_type = infer_j(expr, ctx)
         self.assertEqual(str(inferred_type), "int")
-        self.assertEqual(expr.raw_structure(), 'Var<int>("x")')
+        self.assertEqual(expr.typed_structure(), 'Var<int>("x")')
 
     def test_int(self):
         """Test type inference for integer literals"""
@@ -28,7 +28,7 @@ class TestTypeChecker(unittest.TestCase):
         expr = Int(42)
         inferred_type = infer_j(expr, ctx)
         self.assertEqual(str(inferred_type), "int")
-        self.assertEqual(expr.raw_structure(), 'Int<int>(42)')
+        self.assertEqual(expr.typed_structure(), 'Int<int>(42)')
 
     def test_bool(self):
         """Test type inference for boolean literals"""
@@ -36,7 +36,7 @@ class TestTypeChecker(unittest.TestCase):
         expr = Bool(True)
         inferred_type = infer_j(expr, ctx)
         self.assertEqual(str(inferred_type), "bool")
-        self.assertEqual(expr.raw_structure(), 'Bool<bool>(True)')
+        self.assertEqual(expr.typed_structure(), 'Bool<bool>(True)')
 
     def test_identity_function(self):
         """
@@ -101,7 +101,7 @@ class TestTypeChecker(unittest.TestCase):
 
         # Check that all nodes have proper type annotations
         self.assertEqual(
-            expr.raw_structure(),
+            expr.typed_structure(),
             'Let<int>(Var<->(int, int)>("double"), ' +
             'Function<->(int, int)>(Var<int>("x"), BinOp<int>("*", Var<int>("x"), Int<int>(2))), ' +
             'Apply<int>(Var<->(int, int)>("double"), Int<int>(21)))'

@@ -10,6 +10,7 @@ tokens = (
     'LPAREN',
     'RPAREN',
     'LET',
+    'LETREC',
     'EQUALS',
     'EQUALOP',
     'IN',
@@ -49,6 +50,7 @@ t_ignore = ' \t'
 # Define regular expression rules for keywords
 reserved = {
     'let': 'LET',
+    'letrec': 'LETREC',
     'in': 'IN',
     'if': 'IF',
     'then': 'THEN',

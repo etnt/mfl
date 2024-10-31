@@ -2,7 +2,7 @@
 
 import ply.yacc as yacc
 from mfl_ply_lexer import tokens
-from mfl_type_checker import Int, Bool, BinOp, UnaryOp, If, Var, Function, Apply, Let
+from mfl_ast import Int, Bool, BinOp, UnaryOp, If, Var, Function, Apply, Let, LetRec
 
 precedence = (
     ('left', 'PLUS', 'MINUS'),
@@ -51,6 +51,11 @@ def p_expr_var(p):
 def p_expr_let(p):
     '''expr : LET IDENTIFIER EQUALS expr IN expr'''
     p[0] = Let(Var(p[2]), p[4], p[6])
+
+def p_expr_letrec(p):
+    '''expr : LETREC IDENTIFIER EQUALS expr IN expr'''
+    p[0] = LetRec(Var(p[2]), p[4], p[6])
+
 
 def p_expr_lambda(p):
     '''expr : LAMBDA IDENTIFIER DOT expr'''

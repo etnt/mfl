@@ -20,6 +20,7 @@ This document defines the formal grammar for MFL (Mini Functional Language) usin
          | <lambda>
          | <application>
          | <let>
+         | <letrec>
          | <if>
          | <binary_op>
          | <unary_op>
@@ -34,6 +35,8 @@ This document defines the formal grammar for MFL (Mini Functional Language) usin
 <application> ::= "(" <expr> <expr> ")"
 
 <let> ::= "let" <identifier> "=" <expr> "in" <expr>
+
+<letrec> ::= "letrec" <identifier> "=" <expr> "in" <expr>
 
 <if> ::= "if" <expr> "then" <expr> "else" <expr>
 
@@ -80,6 +83,9 @@ True
 
 # Let binding
 let x = 1 in x
+
+# Letrec binding
+letrec fac = λn.(if (n == 0) then 1 else (n * (fac (n - 1)))) in (fac 5)
 
 # If expression
 if x > 0 then x else 0

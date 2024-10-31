@@ -1,11 +1,14 @@
-"""
-Hindley-Milner Type Inference System Implementation
+#!/usr/bin/env python3
+"""Type checker for MFL.
+
+This module implements type checking and type inference for MFL, using
+the Hindley-Milner type system with let-polymorphism and recursive types.
 """
 
 import dataclasses
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Set
 from mfl_ast import (
-    ASTNode, Var, Int, Bool, Function, Apply, Let, If, BinOp, UnaryOp
+    ASTNode, Var, Int, Bool, Function, Apply, Let, LetRec, If, BinOp, UnaryOp
 )
 
 @dataclasses.dataclass
@@ -80,7 +83,7 @@ def unify_j(ty1: MonoType, ty2: MonoType):
     ty1 = ty1.find()
     ty2 = ty2.find()
     if isinstance(ty1, TyVar):
-        if occurs_in(ty1, ty2):
+        if ty1 != ty2 and occurs_in(ty1, ty2):
             raise Exception(f"Recursive type found: {ty1} and {ty2}")
         ty1.make_equal_to(ty2)
         return
@@ -101,7 +104,6 @@ def update_node_type(node: Any, type: MonoType):
     node.type = resolved_type
     
     if isinstance(node, Function):
-        # For functions, the type is -> (arg_type, return_type)
         if isinstance(resolved_type, TyCon) and resolved_type.name == "->" and len(resolved_type.args) == 2:
             arg_type, return_type = resolved_type.args
             node.arg.type = arg_type
@@ -109,7 +111,6 @@ def update_node_type(node: Any, type: MonoType):
             update_node_type(node.body, return_type)
     
     elif isinstance(node, Apply):
-        # For application, func should have type arg -> result
         func_type = TyCon("->", [node.arg.type, resolved_type])
         if isinstance(node.func, Var):
             node.func.type = func_type
@@ -117,14 +118,12 @@ def update_node_type(node: Any, type: MonoType):
             update_node_type(node.func, func_type)
         update_node_type(node.arg, node.arg.type)
     
-    elif isinstance(node, Let):
-        # For let expressions, propagate types to all components
+    elif isinstance(node, (Let, LetRec)):
         node.name.type = node.value.type
         update_node_type(node.value, node.value.type)
         update_node_type(node.body, resolved_type)
     
     elif isinstance(node, If):
-        # For if expressions, condition must be boolean, both branches must have same type
         node.cond.type = BoolType
         node.then_expr.type = resolved_type
         node.else_expr.type = resolved_type
@@ -133,7 +132,6 @@ def update_node_type(node: Any, type: MonoType):
         update_node_type(node.else_expr, resolved_type)
     
     elif isinstance(node, BinOp):
-        # For binary operations, set types based on the operation
         if node.op in ["+", "-", "*", "/"]:
             node.left.type = IntType
             node.right.type = IntType
@@ -151,7 +149,6 @@ def update_node_type(node: Any, type: MonoType):
             update_node_type(node.right, IntType)
     
     elif isinstance(node, UnaryOp):
-        # For unary operations
         if node.op == "!":
             node.operand.type = BoolType
             update_node_type(node.operand, BoolType)
@@ -167,7 +164,6 @@ def infer_j(expr, ctx: Dict[str, Forall]) -> MonoType:
     result = fresh_tyvar()
 
     if isinstance(expr, Var):
-        # Variables get their type from the context
         scheme = ctx.get(expr.name)
         if scheme is None:
             raise Exception(f"Unbound variable {expr.name}")
@@ -175,87 +171,80 @@ def infer_j(expr, ctx: Dict[str, Forall]) -> MonoType:
         expr.type = scheme.ty.find()
 
     elif isinstance(expr, Int):
-        # Integer literals always have type 'int'
         unify_j(result, IntType)
         expr.type = IntType
 
     elif isinstance(expr, Bool):
-        # Boolean literals always have type 'bool'
         unify_j(result, BoolType)
         expr.type = BoolType
 
     elif isinstance(expr, If):
-        # For if expressions:
-        # 1. Condition must be boolean
         cond_type = infer_j(expr.cond, ctx)
         unify_j(cond_type, BoolType)
-        
-        # 2. Infer types for both branches
         then_type = infer_j(expr.then_expr, ctx)
         else_type = infer_j(expr.else_expr, ctx)
-        
-        # 3. Both branches must have the same type
         unify_j(then_type, else_type)
-        
-        # 4. Result type is the same as branch type
         unify_j(result, then_type)
-        
-        # Update types
         expr.type = then_type.find()
         expr.cond.type = BoolType
         expr.then_expr.type = expr.type
         expr.else_expr.type = expr.type
 
     elif isinstance(expr, Function):
-        # For a function λx.e:
-        # 1. Create fresh type variable for the argument
         arg_type = fresh_tyvar()
-        # Update the argument's type
         expr.arg.type = arg_type
-        # 2. Add x:arg_type to context and infer the body
         body_ctx = ctx.copy()
         body_ctx[expr.arg.name] = Forall([], arg_type)
         body_type = infer_j(expr.body, body_ctx)
-        # 3. Create function type arg_type → body_type
         func_type = TyCon("->", [arg_type, body_type])
         unify_j(result, func_type)
 
     elif isinstance(expr, Apply):
-        # For function application (f x):
-        # 1. Infer types for function and argument
         func_type = infer_j(expr.func, ctx)
         arg_type = infer_j(expr.arg, ctx)
-        # 2. Create fresh type variable for the result
         ret_type = fresh_tyvar()
-        # 3. Unify func_type with arg_type → ret_type
         expected_func_type = TyCon("->", [arg_type, ret_type])
         unify_j(func_type, expected_func_type)
         unify_j(result, ret_type)
-        # 4. Update the function's type to show it's a function type
         if isinstance(expr.func, Var):
             expr.func.type = expected_func_type
 
     elif isinstance(expr, Let):
-        # For let x = e1 in e2:
-        # 1. Infer type of e1
         value_type = infer_j(expr.value, ctx)
-        # Update the name's type
         expr.name.type = value_type
-        # 2. Extend context with x:value_type and infer e2
         body_ctx = ctx.copy()
         body_ctx[expr.name.name] = Forall([], value_type)
         body_type = infer_j(expr.body, body_ctx)
         unify_j(result, body_type)
 
+    elif isinstance(expr, LetRec):
+        # Create initial type variable for the recursive definition
+        var_type = fresh_tyvar()
+        temp_ctx = ctx.copy()
+        temp_ctx[expr.name.name] = Forall([], var_type)
+
+        # Type check the value in the temporary context
+        value_type = infer_j(expr.value, temp_ctx)
+        try:
+            unify_j(var_type, value_type)
+        except Exception as e:
+            raise Exception(f"In recursive definition of {expr.name.name}: {str(e)}")
+
+        # Create final context with the inferred type
+        body_ctx = ctx.copy()
+        final_type = var_type.find()
+        body_ctx[expr.name.name] = Forall([], final_type)
+        expr.name.type = final_type
+
+        # Type check the body in the final context
+        body_type = infer_j(expr.body, body_ctx)
+        unify_j(result, body_type)
+
     elif isinstance(expr, BinOp):
-        # For binary operations:
-        # 1. Infer types of both operands
         left_type = infer_j(expr.left, ctx)
         right_type = infer_j(expr.right, ctx)
 
-        # 2. Handle different types of operations
         if expr.op in ["+", "-", "*", "/"]:
-            # Arithmetic operations require integers
             unify_j(left_type, IntType)
             unify_j(right_type, IntType)
             unify_j(result, IntType)
@@ -263,7 +252,6 @@ def infer_j(expr, ctx: Dict[str, Forall]) -> MonoType:
             expr.left.type = IntType
             expr.right.type = IntType
         elif expr.op in ["&", "|"]:
-            # Boolean operations require booleans
             unify_j(left_type, BoolType)
             unify_j(right_type, BoolType)
             unify_j(result, BoolType)
@@ -271,7 +259,6 @@ def infer_j(expr, ctx: Dict[str, Forall]) -> MonoType:
             expr.left.type = BoolType
             expr.right.type = BoolType
         elif expr.op in [">", "<", "==", "<=", ">="]:
-            # Comparison operations require integers and return boolean
             unify_j(left_type, IntType)
             unify_j(right_type, IntType)
             unify_j(result, BoolType)
@@ -282,13 +269,9 @@ def infer_j(expr, ctx: Dict[str, Forall]) -> MonoType:
             raise Exception(f"Unknown binary operator: {expr.op}")
 
     elif isinstance(expr, UnaryOp):
-        # For unary operations (currently only boolean not):
-        # 1. Infer type of operand
         operand_type = infer_j(expr.operand, ctx)
 
-        # 2. Handle not operation
         if expr.op == "!":
-            # Not operation requires boolean operand
             unify_j(operand_type, BoolType)
             unify_j(result, BoolType)
             expr.type = BoolType
@@ -299,7 +282,6 @@ def infer_j(expr, ctx: Dict[str, Forall]) -> MonoType:
     else:
         raise Exception(f"Unknown expression type: {type(expr)}")
 
-    # Store the inferred type in the AST node and update child nodes
     final_type = result.find()
     expr.type = final_type
     update_node_type(expr, final_type)
