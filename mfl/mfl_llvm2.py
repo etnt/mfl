@@ -1,4 +1,3 @@
-# %%
 import os
 import sys
 from llvmlite import ir
@@ -10,16 +9,15 @@ parent_dir = os.path.dirname(current_dir)
 # Add parent directory to Python path
 sys.path.insert(0, parent_dir)
 
-from mfl.mfl_ast import (
+from mfl_ast import (
     Var, Int, Function, BinOp, 
 )
+from mfl_type_checker import TyCon
 
-# %%
 # Create the LLVM module and int type
 module = ir.Module(name="curried_functions")
 int_type = ir.IntType(32)
 
-# %%
 def create_curried_function(func_node, depth=0, lambda_state=None):
     """
     Recursively creates LLVM functions from nested Function nodes in the AST.
@@ -27,7 +25,7 @@ def create_curried_function(func_node, depth=0, lambda_state=None):
     - depth: Current nesting depth for unique naming
     - lambda_state: The LLVM IR struct pointer to hold captured arguments
     """
-    if isinstance(func_node.body, Function):
+    if isinstance(func_node.body, Function):        
         # This is a curried function - returns pointer to next function
         return_type = ir.FunctionType(int_type, [lambda_state_type, int_type]).as_pointer()
         func_type = ir.FunctionType(return_type, [int_type, lambda_state_type])
@@ -50,7 +48,7 @@ def create_curried_function(func_node, depth=0, lambda_state=None):
         # Create next function
         next_func = create_curried_function(func_node.body, depth + 1, lambda_state)
         builder.ret(next_func)
-        
+
         return func
 
     else:
@@ -69,7 +67,7 @@ def create_curried_function(func_node, depth=0, lambda_state=None):
                 arg_ptr = builder.gep(lambda_state, [int_type(0), int_type(i)])
                 arg = builder.load(arg_ptr, name=f"arg_{i}")
                 args.append(arg)
-            
+
             # Add final argument
             args.append(func.args[1])
 
@@ -101,30 +99,48 @@ def create_curried_function(func_node, depth=0, lambda_state=None):
 
         return func
 
-# %%
 # Assuming lambda_state_type is a structure type holding all captured variables
-lambda_state_type = ir.LiteralStructType([int_type, int_type, int_type])  # Modify based on depth
+#lambda_state_type = ir.LiteralStructType([int_type, int_type, int_type])  # Modify based on depth
 
+def get_lambda_state_types(ast):
+    """
+    Traverses the AST and determines the types of captured variables in lambda functions.
 
-# %%
+    Args:
+        ast: The root of the AST (a Function node representing the outermost lambda).
 
-# %%
+    Returns:
+        A list of types representing the captured variables.  Returns an empty list if no 
+        captured variables are found.  Currently only supports 'int' type.
+    """
+    captured_var_types = []
+    # Use a recursive helper function to traverse the AST
+    def traverse(node):
+        if isinstance(node, Function) and isinstance(node.arg, Var):
+            captured_var_types.append(ir.IntType(32)) # FIXME - currently only supports 'int' type
+            print(f"Captured variable: {node.arg.name}, Type: {node.arg.type}")
+            traverse(node.body)
+        else: 
+            return
+
+    traverse(ast)
+    return captured_var_types
+
 def main():
     # Example AST for λx.λy.λz.(x + y + z)
-    ast = Function(
-        Var("x"),
-        Function(
-            Var("y"),
-            Function(
-                Var("z"),
-                BinOp(
-                    BinOp(Var("x"), "+", Var("y")),
-                    "+",
-                    Var("z")
-                ),
-            ),
-        ),
-    )
+    x = Var("x")
+    x.type = TyCon("int",[])
+    y = Var("y")
+    y.type = TyCon("int",[]),
+    z = Var("z")
+    z.type = TyCon("int",[]),
+    ast = Function(x, Function(y, Function(z, BinOp( BinOp(x, "+", y), "+", z))))
+
+    captured_var_types = get_lambda_state_types(ast)
+    print(f"Captured variable types: {captured_var_types}")
+
+    global lambda_state_type
+    lambda_state_type = ir.LiteralStructType(captured_var_types)
 
     # Create the outermost function and recursively generate IR
     curried_function_ir = create_curried_function(ast)
