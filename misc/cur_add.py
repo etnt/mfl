@@ -4,12 +4,13 @@ import sys
 from llvmlite import ir
 
 # Get the directory of the current file
-current_dir = os.getcwd()
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
 
-# add ../mfl to the Python path
-sys.path.insert(0, os.path.join(current_dir, '../mfl'))
+# Add parent directory to Python path
+sys.path.insert(0, parent_dir)
 
-from mfl_ast import (
+from mfl.mfl_ast import (
     Var, Int, Function, BinOp, 
 )
 
@@ -19,65 +20,84 @@ module = ir.Module(name="curried_functions")
 int_type = ir.IntType(32)
 
 # %%
-def create_curried_function(func_node, lambda_state=None):
+def create_curried_function(func_node, depth=0, lambda_state=None):
     """
     Recursively creates LLVM functions from nested Function nodes in the AST.
-    - func_node: The AST node representing a function.
-    - lambda_state: The LLVM IR struct or pointer to hold captured arguments.
+    - func_node: The AST node representing a function
+    - depth: Current nesting depth for unique naming
+    - lambda_state: The LLVM IR struct pointer to hold captured arguments
     """
-
-    # Check if this function node has a body that's also a function (curried)
     if isinstance(func_node.body, Function):
-        # This is a curried function, so we create a function that returns
-        # a pointer to another function.
-        
-        # Define the function type to return a pointer to the next function
-        func_type = ir.FunctionType(ir.IntType(32).as_pointer(), [ir.IntType(32), lambda_state_type])
-        func = ir.Function(module, func_type, name="curried_func_level")
+        # This is a curried function - returns pointer to next function
+        return_type = ir.FunctionType(int_type, [lambda_state_type, int_type]).as_pointer()
+        func_type = ir.FunctionType(return_type, [int_type, lambda_state_type])
+        func = ir.Function(module, func_type, name=f"curried_func_{depth}")
 
-        # Entry block for current function
+        # Create entry block
         entry_block = func.append_basic_block(name="entry")
         builder = ir.IRBuilder(entry_block)
 
-        # Load the state, capture the current argument
-        x = func.args[0]  # Argument for this level
-        lambda_state_ptr = func.args[1]
-        
-        # Store 'x' into %lambda_state
-        x_ptr = builder.gep(lambda_state_ptr, [int_type(0), int_type(func_node.arg_index)], name=f"x_ptr_{func_node.arg_name}")
-        builder.store(x, x_ptr)
-        
-        # Recursively create the next curried function
-        next_func = create_curried_function(func_node.body, lambda_state_ptr)
+        # Allocate state if this is the outermost function
+        if lambda_state is None:
+            lambda_state = builder.alloca(lambda_state_type, name="lambda_state")
 
-        # Return pointer to the next function
+        # Store current argument in state
+        arg = func.args[0]
+        arg_ptr = builder.gep(lambda_state, [int_type(0), int_type(depth)], 
+                            name=f"arg_ptr_{func_node.arg}")
+        builder.store(arg, arg_ptr)
+
+        # Create next function
+        next_func = create_curried_function(func_node.body, depth + 1, lambda_state)
         builder.ret(next_func)
-
+        
         return func
 
     else:
-        # This is the innermost function, so we perform the actual computation
-        # using the captured arguments in lambda_state.
-        
-        # Define the function type to return an int
-        func_type = ir.FunctionType(ir.IntType(32), [ir.IntType(32), lambda_state_type])
-        func = ir.Function(module, func_type, name="innermost_func")
+        # This is the innermost function that computes the final result
+        func_type = ir.FunctionType(int_type, [lambda_state_type, int_type])
+        func = ir.Function(module, func_type, name=f"compute_{depth}")
 
-        # Entry block
         entry_block = func.append_basic_block(name="entry")
         builder = ir.IRBuilder(entry_block)
 
-        # Load 'x', 'y', 'z' from %lambda_state to compute ((x + y) + z)
-        x = builder.load(builder.gep(lambda_state_ptr, [int_type(0), int_type(0)]), name="x")
-        y = builder.load(builder.gep(lambda_state_ptr, [int_type(0), int_type(1)]), name="y")
-        z = builder.load(builder.gep(lambda_state_ptr, [int_type(0), int_type(2)]), name="z")
+        # Generate code for the body expression
+        if isinstance(func_node.body, BinOp):
+            # Load captured arguments from state
+            args = []
+            for i in range(depth):
+                arg_ptr = builder.gep(lambda_state, [int_type(0), int_type(i)])
+                arg = builder.load(arg_ptr, name=f"arg_{i}")
+                args.append(arg)
+            
+            # Add final argument
+            args.append(func.args[1])
 
-        # Perform the computation ((x + y) + z)
-        sum_xy = builder.add(x, y, name="sum_xy")
-        sum_xyz = builder.add(sum_xy, z, name="sum_xyz")
-
-        # Return the result
-        builder.ret(sum_xyz)
+            # Generate binary operation
+            if func_node.body.op == '+':
+                result = builder.add(args[0], args[1], name="add")
+                for arg in args[2:]:
+                    result = builder.add(result, arg, name="add")
+                builder.ret(result)
+            else:
+                # Default case for unsupported operations
+                builder.ret(int_type(0))
+        elif isinstance(func_node.body, Var):
+            # Handle variable references
+            var_name = func_node.body.name
+            # Find the variable's position in the captured arguments
+            for i in range(depth):
+                if func_node.body.name == f"arg_{i}":
+                    arg_ptr = builder.gep(lambda_state, [int_type(0), int_type(i)])
+                    result = builder.load(arg_ptr, name=f"load_{var_name}")
+                    builder.ret(result)
+                    break
+            else:
+                # If variable not found, return the final argument
+                builder.ret(func.args[1])
+        else:
+            # Default case for other types
+            builder.ret(int_type(0))
 
         return func
 
@@ -87,21 +107,32 @@ lambda_state_type = ir.LiteralStructType([int_type, int_type, int_type])  # Modi
 
 
 # %%
-# Assume AST for curried function (simplified)
-class Function:
-    def __init__(self, arg_name, body, arg_index):
-        self.arg_name = arg_name
-        self.body = body
-        self.arg_index = arg_index
 
 # %%
-# Simulated AST for a curried function λx.λy.λz.((x + y) + z)
-curried_ast = Function("x", Function("y", Function("z", "((x + y) + z)", 2), 1), 0)
+def main():
+    # Example AST for λx.λy.λz.(x + y + z)
+    ast = Function(
+        Var("x"),
+        Function(
+            Var("y"),
+            Function(
+                Var("z"),
+                BinOp(
+                    BinOp(Var("x"), "+", Var("y")),
+                    "+",
+                    Var("z")
+                ),
+            ),
+        ),
+    )
 
-# Create the outermost function and recursively generate IR
-curried_function_ir = create_curried_function(curried_ast)
+    # Create the outermost function and recursively generate IR
+    curried_function_ir = create_curried_function(ast)
 
-# Print the generated LLVM IR
-print(module)
+    # Print the generated LLVM IR
+    print(module)
+
+if __name__ == "__main__":
+    main()
 
 
