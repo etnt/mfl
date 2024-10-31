@@ -1,1 +1,2 @@
 ply
+llvmlite==0.43.0

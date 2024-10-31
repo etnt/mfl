@@ -153,7 +153,9 @@ class LLVMGenerator:
     def generate_function(self, node: Function) -> Tuple[str, str]:
         """Generate LLVM IR for function definition with currying support"""
         self.debug(f"Generating function with argument: {node.arg.name}")
-        
+
+        # FIXME if node.body is a function, we need to generate curried functions a la curried_add.ll
+
         # Generate unique function name based on lambda depth
         func_name = f"@lambda_{self.lambda_depth}"
         self.lambda_depth += 1
