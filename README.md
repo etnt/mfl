@@ -8,6 +8,7 @@ MFL is just a learning project, playing around with typical concepts of function
 - **Lambda abstractions:** Define anonymous functions using `λ` (lambda)
 - **Function application:** Apply functions to arguments using parentheses
 - **Let bindings:** Introduce local variables using `let`
+- **LetRec bindings:** Introduce recursive local variables using `letrec`
 - **Arithmetic operations:** `+`, `-`, `*`, `/`
 - **Boolean operations:** `&` (and), `|` (or), `!` (not)
 - **Type inference:** The language uses a Hindley-Milner type inference system to automatically deduce the types of expressions.
