@@ -42,6 +42,13 @@ A direct interpreter for the Abstract Syntax Tree (AST) that provides another ex
 - Curried functions
 This interpreter serves as a reference implementation, making it easier to understand how MFL expressions are evaluated without the complexity of compilation or virtual machine execution.
 
+### 7. MFL - SKI Machine (mfl_ski.py)
+An implementation of the SKI combinator calculus machine that provides another execution backend for MFL expressions. The machine works by:
+- Converting lambda expressions to SKI combinators through bracket abstraction
+- Reducing SKI expressions to normal form using combinator reduction rules
+- Supporting arithmetic, comparison, and boolean operations
+This implementation demonstrates how complex lambda expressions can be reduced to a minimal set of combinators while preserving their computational meaning.
+
 ## Requirements
 
 The programs may require various Python packages. Install them using:
@@ -77,11 +84,11 @@ options:
   -b, --backend-verbose
                         Enable verbose output from backend
   -o, --output OUTPUT   Output file name
-  -s, --secd            Execute using SECD machine
-  -k, --ski             Execute using SKI combinator machine
-  -a, --ast             Execute using AST interpreter
+  -s, --secd           Execute using SECD machine
+  -k, --ski            Execute using SKI combinator machine
+  -a, --ast            Execute using AST interpreter
   -g, --gmachine        Execute using G-machine
-  -l, --llvm            Generate LLVM IR and compile to binary code 
+  -l, --llvm           Generate LLVM IR and compile to binary code 
 ```
 
 Note: The LLVM- and G-machine backends are not working atm.
@@ -163,4 +170,23 @@ Compilation successful!
 
 ❯ ./double
 42
+```
+
+Some fun with `if`:
+
+```bash
+python3 ./mfl/mfl.py -a "let between = λx.if (x < 0) then False else if (x > 10) then False else True in (between 2)"
+Successfully parsed!
+AST(pretty): let between = λx.if (x < 0) then False else if (x > 10) then False else True in (between 2)
+AST(typed): Let<bool>(Var<->(int, bool)>("between"), Function<->(int, bool)>(Var<int>("x"), If<bool>(BinOp<bool>("<", Var<int>("x"), Int<int>(0)), Bool<bool>(False), If<bool>(BinOp<bool>(">", Var<int>("x"), Int<int>(10)), Bool<bool>(False), Bool<bool>(True)))), Apply<bool>(Var<->(int, bool)>("between"), Int<int>(2)))
+Inferred final type: bool
+AST interpreter result: True
+
+python3 ./mfl/mfl.py -a "let between = λx.if (x < 0) then False else if (x > 10) then False else True in (between 11)"
+ ...
+AST interpreter result: False
+
+# Note: unary minus not supported atm...
+python3 ./mfl/mfl.py -a "let between = λx.if (x < 0) then False else if (x > 10) then False else True in (between (0 - 1))"
+AST interpreter result: False
 ```
