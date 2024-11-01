@@ -186,19 +186,19 @@ class LLVMGenerator:
         Generate function application.
         Returns the result value and type.
         """
-        self.debug("Generating function application")
+        self.debug(f"Generating function application: {node.func} {node.arg}")
         
         # Generate function and argument
         func_val, func_type = self.generate(node.func)
         arg_val, arg_type = self.generate(node.arg)
-        
+
         # Always allocate new closure state
         state_ptr = self.builder.alloca(self.state_type)
-        
+
         # Load function value if needed
         if isinstance(func_val, (ir.GEPInstr, ir.AllocaInstr)):
             func_val = self.builder.load(func_val)
-        
+
         # Get function type
         if isinstance(func_val.type, ir.PointerType):
             func_ptr_type = func_val.type.pointee
@@ -206,7 +206,7 @@ class LLVMGenerator:
                 # Call the function to get next function pointer
                 next_func = self.builder.call(func_val, [state_ptr, arg_val])
                 return next_func, next_func.type
-            
+
         raise TypeError(f"Expected function pointer, got {func_val.type}")
 
     def generate_let(self, node: Let) -> Tuple[ir.Value, ir.Type]:
