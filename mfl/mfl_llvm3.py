@@ -106,7 +106,7 @@ class LLVMGenerator:
         else:
             raise ValueError(f"Unknown node type: {type(node)}")
 
-    def generate_function(self, node: Function) -> Tuple[ir.Function, ir.Type]:
+    def generate_function(self, node: Function) -> Tuple[ir.Value, ir.Type]:
         """
         Generate a curried function.
         Returns the function and its type.
@@ -117,19 +117,10 @@ class LLVMGenerator:
         old_builder = self.builder
         old_vars = self.variables.copy()
         
-        # Check if this is a curried function (has nested Function in body)
-        is_curried = isinstance(node.body, Function)
-        
-        if is_curried:
-            # This function returns a pointer to the next function
-            inner_func_type = ir.FunctionType(self.int_type, 
-                                            [self.state_ptr_type, self.int_type])
-            return_type = ir.PointerType(inner_func_type)
-        else:
-            # This is the computation function that returns an int
-            return_type = self.int_type
-            
-        # Create function type
+        # Create function type that always returns a function pointer
+        inner_func_type = ir.FunctionType(self.int_type, 
+                                        [self.state_ptr_type, self.int_type])
+        return_type = ir.PointerType(inner_func_type)
         func_type = ir.FunctionType(return_type, 
                                   [self.state_ptr_type, self.int_type])
         
@@ -144,26 +135,46 @@ class LLVMGenerator:
         
         # Add parameters to scope
         state_ptr, arg = func.args
-        self.variables[node.arg.name] = (arg, self.int_type)
         
-        if is_curried:
-            # Store argument in closure state
-            idx = len(self.variables) - 1
-            arg_ptr = self.builder.gep(state_ptr, 
-                                     [ir.Constant(self.int_type, 0),
-                                      ir.Constant(self.int_type, idx)],
-                                     name=f"arg_ptr_{node.arg.name}")
-            self.builder.store(arg, arg_ptr)
-            
-            # Generate next function
+        # Store argument in closure state
+        idx = len(self.variables)
+        arg_ptr = self.builder.gep(state_ptr, 
+                                 [ir.Constant(self.int_type, 0),
+                                  ir.Constant(self.int_type, idx)],
+                                 name=f"arg_ptr_{node.arg.name}")
+        self.builder.store(arg, arg_ptr)
+        
+        # Add stored argument to variables
+        self.variables[node.arg.name] = (arg_ptr, self.int_type)
+        
+        if isinstance(node.body, Function):
+            # Generate next function in curry chain
             next_func, _ = self.generate(node.body)
             self.builder.ret(next_func)
         else:
+            # Create computation function
+            comp_func = ir.Function(self.module, inner_func_type,
+                                  name=self.fresh_name("comp"))
+            comp_block = comp_func.append_basic_block(name="entry")
+            
+            # Save state
+            temp_builder = self.builder
+            temp_vars = self.variables.copy()
+            
+            # Switch to computation function
+            self.builder = ir.IRBuilder(comp_block)
+            self.current_function = comp_func
+            
             # Generate computation
             result, _ = self.generate(node.body)
             self.builder.ret(result)
+            
+            # Restore state and return computation function
+            self.builder = temp_builder
+            self.variables = temp_vars
+            self.builder.ret(comp_func)
         
-        # Restore state
+        # Restore original state
         self.builder = old_builder
         self.variables = old_vars
         self.current_function = None
@@ -184,33 +195,19 @@ class LLVMGenerator:
         # Always allocate new closure state
         state_ptr = self.builder.alloca(self.state_type)
         
-        # Handle different function types
-        if isinstance(func_val, ir.Function):
-            # Direct function reference
-            result = self.builder.call(func_val, [state_ptr, arg_val])
-            return result, result.type
+        # Load function value if needed
+        if isinstance(func_val, (ir.GEPInstr, ir.AllocaInstr)):
+            func_val = self.builder.load(func_val)
+        
+        # Get function type
+        if isinstance(func_val.type, ir.PointerType):
+            func_ptr_type = func_val.type.pointee
+            if isinstance(func_ptr_type, ir.FunctionType):
+                # Call the function to get next function pointer
+                next_func = self.builder.call(func_val, [state_ptr, arg_val])
+                return next_func, next_func.type
             
-        elif isinstance(func_type, ir.PointerType):
-            # Load function pointer if needed
-            if isinstance(func_type.pointee, ir.FunctionType):
-                func_ptr = func_val
-            else:
-                # Keep loading until we get a function pointer
-                func_ptr = func_val
-                while isinstance(func_ptr.type, ir.PointerType) and \
-                      not isinstance(func_ptr.type.pointee, ir.FunctionType):
-                    func_ptr = self.builder.load(func_ptr)
-                
-            if not isinstance(func_ptr.type, ir.PointerType) or \
-               not isinstance(func_ptr.type.pointee, ir.FunctionType):
-                raise TypeError(f"Expected function pointer, got: {func_ptr.type}")
-                
-            # Call the function
-            result = self.builder.call(func_ptr, [state_ptr, arg_val])
-            return result, result.type
-            
-        else:
-            raise TypeError(f"Expected function or function pointer, got: {func_type}")
+        raise TypeError(f"Expected function pointer, got {func_val.type}")
 
     def generate_let(self, node: Let) -> Tuple[ir.Value, ir.Type]:
         """
@@ -222,8 +219,15 @@ class LLVMGenerator:
         # Generate value
         val, val_type = self.generate(node.value)
         
-        # Add to scope
-        self.variables[node.name.name] = (val, val_type)
+        # For function values, store directly in variables
+        if isinstance(val, ir.Function) or (isinstance(val_type, ir.PointerType) and 
+                                          isinstance(val_type.pointee, ir.FunctionType)):
+            self.variables[node.name.name] = (val, val_type)
+        else:
+            # For non-function values, store in an alloca
+            alloca = self.builder.alloca(val_type)
+            self.builder.store(val, alloca)
+            self.variables[node.name.name] = (alloca, val_type)
         
         # Generate body
         result, result_type = self.generate(node.body)
@@ -246,25 +250,17 @@ class LLVMGenerator:
             
         val, ty = self.variables[node.name]
         
-        # For function values
+        # For function values, return directly
         if isinstance(val, ir.Function):
-            # Return function pointer type for curried functions
-            if len(val.function_type.args) == 2:  # state_ptr and one arg
-                return val, val.type
-                
-        # For values stored in closure state
-        if isinstance(val, ir.GEPInstr):
-            loaded_val = self.builder.load(val)
-            return loaded_val, ty
-            
-        # For local variables that need loading
-        if isinstance(val, ir.AllocaInstr):
-            loaded_val = self.builder.load(val)
-            return loaded_val, ty
-            
-        # For function pointers, return as is
-        if isinstance(ty, ir.PointerType) and isinstance(ty.pointee, ir.FunctionType):
             return val, ty
+        elif isinstance(ty, ir.PointerType) and isinstance(ty.pointee, ir.FunctionType):
+            if isinstance(val, (ir.GEPInstr, ir.AllocaInstr)):
+                return self.builder.load(val), ty
+            return val, ty
+            
+        # For values stored in memory
+        if isinstance(val, (ir.GEPInstr, ir.AllocaInstr)):
+            return self.builder.load(val), ty
             
         # For immediate values
         return val, ty
