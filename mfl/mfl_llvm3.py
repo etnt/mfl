@@ -70,6 +70,15 @@ class LLVMGenerator:
         """
         self.debug(f"Generating code for {type(node).__name__}")
         
+        # Initialize builder if not already done
+        if self.builder is None:
+            # Create main function
+            main_type = ir.FunctionType(self.int_type, [])
+            main_func = ir.Function(self.module, main_type, name="main")
+            block = main_func.append_basic_block(name="entry")
+            self.builder = ir.IRBuilder(block)
+            self.current_function = main_func
+        
         if isinstance(node, Int):
             return ir.Constant(self.int_type, node.value), self.int_type
             
@@ -172,18 +181,36 @@ class LLVMGenerator:
         func_val, func_type = self.generate(node.func)
         arg_val, arg_type = self.generate(node.arg)
         
-        if not isinstance(func_type, ir.PointerType):
-            raise TypeError("Cannot call non-function type")
+        # Always allocate new closure state
+        state_ptr = self.builder.alloca(self.state_type)
+        
+        # Handle different function types
+        if isinstance(func_val, ir.Function):
+            # Direct function reference
+            result = self.builder.call(func_val, [state_ptr, arg_val])
+            return result, result.type
             
-        # Create closure state if needed
-        if isinstance(node.func, Function):
-            state_ptr = self.builder.alloca(self.state_type)
+        elif isinstance(func_type, ir.PointerType):
+            # Load function pointer if needed
+            if isinstance(func_type.pointee, ir.FunctionType):
+                func_ptr = func_val
+            else:
+                # Keep loading until we get a function pointer
+                func_ptr = func_val
+                while isinstance(func_ptr.type, ir.PointerType) and \
+                      not isinstance(func_ptr.type.pointee, ir.FunctionType):
+                    func_ptr = self.builder.load(func_ptr)
+                
+            if not isinstance(func_ptr.type, ir.PointerType) or \
+               not isinstance(func_ptr.type.pointee, ir.FunctionType):
+                raise TypeError(f"Expected function pointer, got: {func_ptr.type}")
+                
+            # Call the function
+            result = self.builder.call(func_ptr, [state_ptr, arg_val])
+            return result, result.type
+            
         else:
-            # Reuse existing state
-            state_ptr = self.builder.load(func_val)
-            
-        # Call function
-        return self.builder.call(func_val, [state_ptr, arg_val]), self.int_type
+            raise TypeError(f"Expected function or function pointer, got: {func_type}")
 
     def generate_let(self, node: Let) -> Tuple[ir.Value, ir.Type]:
         """
@@ -199,7 +226,13 @@ class LLVMGenerator:
         self.variables[node.name.name] = (val, val_type)
         
         # Generate body
-        return self.generate(node.body)
+        result, result_type = self.generate(node.body)
+        
+        # Add return if we're in the main function
+        if self.current_function.name == "main":
+            self.builder.ret(result)
+            
+        return result, result_type
 
     def generate_var(self, node: Var) -> Tuple[ir.Value, ir.Type]:
         """
@@ -213,10 +246,27 @@ class LLVMGenerator:
             
         val, ty = self.variables[node.name]
         
-        # Load from closure state if needed
-        if isinstance(val, ir.AllocaInstr):
-            val = self.builder.load(val)
+        # For function values
+        if isinstance(val, ir.Function):
+            # Return function pointer type for curried functions
+            if len(val.function_type.args) == 2:  # state_ptr and one arg
+                return val, val.type
+                
+        # For values stored in closure state
+        if isinstance(val, ir.GEPInstr):
+            loaded_val = self.builder.load(val)
+            return loaded_val, ty
             
+        # For local variables that need loading
+        if isinstance(val, ir.AllocaInstr):
+            loaded_val = self.builder.load(val)
+            return loaded_val, ty
+            
+        # For function pointers, return as is
+        if isinstance(ty, ir.PointerType) and isinstance(ty.pointee, ir.FunctionType):
+            return val, ty
+            
+        # For immediate values
         return val, ty
 
     def generate_binop(self, node: BinOp) -> Tuple[ir.Value, ir.Type]:
@@ -277,10 +327,9 @@ def main():
                 Var("y"), 
                 Function(
                     Var("z"),
-                    BinOp(
-                        BinOp(Var("x"), "+", Var("y")),
-                        "+",
-                        Var("z")
+                    BinOp(op = "+",
+                        left = BinOp(op = "+", left = Var("x"), right = Var("y")),
+                        right = Var("z")
                     )
                 )
             )
