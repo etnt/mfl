@@ -1,356 +1,482 @@
 """
-LLVM IR Code Generator
+LLVM IR Generator for curried functions using llvmlite.
 
-This module generates LLVM IR code from the AST produced by the functional parser.
-It follows the LLVM Language Reference:
-https://llvm.org/docs/LangRef.html
-
-Key features implemented:
-- Integer literals
-- Boolean literals
-- Variables
-- Lambda functions (as LLVM functions with currying support)
-- Function applications
-- Let bindings
-- Basic arithmetic and comparison operations
+This module generates LLVM IR code from AST nodes, with special handling for
+curried functions using closure state to hold captured variables.
 """
 
-import subprocess
-from typing import Any, Dict, List, Optional, Tuple
-from mfl_ast import (
-    Var, Int, Bool, Function, Apply, Let, BinOp
-)
-from mfl_type_checker import (MonoType, TyCon, TyVar)
+from llvmlite import ir
+import llvmlite.binding as llvm
+from typing import Dict, Optional, Tuple, Any
 
-def find_target_triple() -> str:
-    """
-    Determine the target triple for the current system.
-    This is used to set the target triple in the LLVM IR code.
-    """
-    try:
-        result = subprocess.run(['clang', '--version'], capture_output=True, text=True, check=True)
-        output_lines = result.stdout.splitlines()
-        for line in output_lines:
-            if "Target:" in line:
-                target_triple = line.split(": ")[1].strip()
-                return target_triple
-    except subprocess.CalledProcessError as e:
-        print(f"Error executing clang: {e}")
-    except FileNotFoundError:
-        print("clang not found in PATH")
+from mfl_ast import (
+    ASTNode, Var, Function, Apply, Let, Int, Bool, BinOp, UnaryOp
+)
+from mfl_type_checker import (
+    TyVar, TyCon
+)
+
+#import builtins
+#import inspect
+#
+## Override the print function to include line number
+#def print(*args, **kwargs):
+#    frame = inspect.currentframe().f_back
+#    builtins.print(f"<{frame.f_lineno}>: ", end="")
+#
+#     builtins.print(*args, **kwargs)
+
+# Initialize LLVM
+llvm.initialize()
+llvm.initialize_native_target()
+llvm.initialize_native_asmprinter()
 
 class LLVMGenerator:
     """
     Generates LLVM IR code from AST nodes.
-    Implements the visitor pattern to traverse the AST.
+    Handles curried functions by using closure state to hold captured variables.
     """
-
-    def __init__(self, verbose=False):
-        self.fresh_counter = 0
-        self.functions: Dict[str, str] = {}  # Maps function names to their types
-        self.variables: Dict[str, str] = {}  # Maps variable names to their LLVM registers
-        self.current_function: Optional[str] = None
-        self.declarations = []
-        self.definitions = []
+    def __init__(self, verbose=False, generate_comments=True):
+        # Debug output
         self.verbose = verbose
-        self.lambda_depth = 0  # Track nested lambda depth
-        self._init_runtime()
+        self.generate_comments = generate_comments
 
-    def debug(self, msg: str):
+        # Counter for generating unique names
+        self.fresh_counter = 0
+
+       # Current IR builder
+        self.builder: Optional[ir.IRBuilder] = None
+        
+        # Track current function being generated
+        self.current_function: Optional[ir.Function] = None
+        
+        # Symbol table for variables
+        self.variables: Dict[str, Tuple[ir.Value, ir.Type]] = {}
+
+        # Create module to hold IR code
+        self.module = ir.Module(name="MFL Generated Module")
+        self.module.triple = llvm.get_default_triple()
+        
+        # Basic types we'll use
+        self.int_type = ir.IntType(32)
+        self.bool_type = ir.IntType(1)
+        self.void_type = ir.VoidType()
+
+        # Declare the printf function
+        self.printf_ty = ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))], var_arg=True)
+        self.printf = ir.Function(self.module, self.printf_ty, name="printf")
+       
+        # Define some useful string constants
+        self.str_int = ir.GlobalVariable(self.module, ir.ArrayType(ir.IntType(8), 3), name=".str.int")
+        self.str_int.linkage = 'private'
+        self.str_int.global_constant = True
+        self.str_int.initializer = ir.Constant(ir.ArrayType(ir.IntType(8), 3), bytearray(b"%d\00"))
+
+        self.str_bool = ir.GlobalVariable(self.module, ir.ArrayType(ir.IntType(8), 3), name=".str.bool")
+        self.str_bool.linkage = 'private'
+        self.str_bool.global_constant = True
+        self.str_bool.initializer = ir.Constant(ir.ArrayType(ir.IntType(8), 3), bytearray(b"%s\00"))
+
+        self.str_true = ir.GlobalVariable(self.module, ir.ArrayType(ir.IntType(8), 5), name=".str.true")
+        self.str_true.linkage = 'private'
+        self.str_true.global_constant = True
+        self.str_true.initializer = ir.Constant(ir.ArrayType(ir.IntType(8), 5), bytearray(b"true\00"))
+
+        self.str_false = ir.GlobalVariable(self.module, ir.ArrayType(ir.IntType(8), 6), name=".str.false")
+        self.str_false.linkage = 'private'
+        self.str_false.global_constant = True
+        self.str_false.initializer = ir.Constant(ir.ArrayType(ir.IntType(8), 6), bytearray(b"false\00"))
+        
+        # Setup the lambda closure state (holds captured variables)
+        # Create named struct type
+        self.state_type = ir.global_context.get_identified_type("lambda_state")
+        lambda_state_size = 8   # Holding 8 variables for now
+        self.state_type.set_body(*[self.int_type] * lambda_state_size)  
+        # Create pointer type to named struct
+        self.state_ptr_type = ir.PointerType(self.state_type)
+        # Pointer to allocated lambda state struct
+        self.state_ptr = None
+
+    def debug(self, msg: str) -> None:
         """Print debug message if verbose mode is enabled"""
         if self.verbose:
             print(f"LLVM: {msg}")
 
-    def _init_runtime(self):
-        """Initialize LLVM IR with necessary declarations"""
-        target_triple = find_target_triple()
-        self.declarations.extend([
-            "; MFL to LLVM IR Compiler Output",
-            "",
-            f'target triple = "{target_triple}"',
-            "",
-            "declare i32 @printf(i8* nocapture readonly, ...)",
-            "",
-            "; String constants for printing",
-            '@.str.int = private unnamed_addr constant [3 x i8] c"%d\00"',
-            '@.str.bool = private unnamed_addr constant [3 x i8] c"%s\00"',
-            '@.str.true = private unnamed_addr constant [5 x i8] c"true\00"',
-            '@.str.false = private unnamed_addr constant [6 x i8] c"false\00"',
-            "",
-            "; Define a struct to hold the arguments for the lambda functions",
-            "%lambda_args = type { i32, i32, i32 }",
-            ""
-        ])
+    def comment(self, msg: str) -> None:
+        """Print debug message if verbose mode is enabled"""
+        if self.generate_comments:
+            self.builder.comment(msg)
 
-    def fresh_var(self, prefix: str = "") -> str:
-        """Generate a fresh LLVM register name"""
-        self.fresh_counter += 1
-        name = f"%{prefix}_{self.fresh_counter}"
-        self.debug(f"Generated fresh variable: {name}")
-        return name
+    def verify_code(self, ir: str) -> None:
+        """Verify the generated code"""
+        llvm.parse_assembly(ir)
 
-    def fresh_label(self, prefix: str = "label") -> str:
-        """Generate a fresh label name"""
-        self.fresh_counter += 1
+    def fresh_name(self, prefix: str = "") -> str:
+        """Generate a unique name"""
         name = f"{prefix}_{self.fresh_counter}"
-        self.debug(f"Generated fresh label: {name}")
+        self.fresh_counter += 1
         return name
 
-    def generate(self, node: Any, type_info: MonoType = None) -> Tuple[str, str]:
+    def generate(self, node: ASTNode) -> Tuple[ir.Value, ir.Type]:
         """
-        Generate LLVM IR code for an AST node.
-        Returns (register_name, type) tuple.
+        Generate LLVM IR for an AST node.
+        Returns (value, type) tuple.
         """
-        self.debug(f"Generating code for node type: {type(node).__name__}")
+        # Initialize builder if not already done
+        if self.builder is None:
+            # Create main function
+            main_type = ir.FunctionType(self.int_type, [])
+            main_func = ir.Function(self.module, main_type, name="main")
+            block = main_func.append_basic_block(name="entry")
+            self.builder = ir.IRBuilder(block)
+            self.current_function = main_func
+
         if isinstance(node, Int):
-            return self.generate_int(node)
+            return ir.Constant(self.int_type, node.value), self.int_type
+
         elif isinstance(node, Bool):
-            return self.generate_bool(node)
+            return ir.Constant(self.bool_type, 1 if node.value else 0), self.bool_type
+
         elif isinstance(node, Var):
             return self.generate_var(node)
+
         elif isinstance(node, Function):
             return self.generate_function(node)
+
         elif isinstance(node, Apply):
             return self.generate_apply(node)
+
         elif isinstance(node, Let):
             return self.generate_let(node)
+
         elif isinstance(node, BinOp):
             return self.generate_binop(node)
+
+        elif isinstance(node, UnaryOp):
+            return self.generate_unaryop(node)
+
         else:
-            raise ValueError(f"Unknown AST node type: {type(node)}")
+            raise ValueError(f"Unknown node type: {type(node)}")
 
-    def generate_int(self, node: Int) -> Tuple[str, str]:
-        """Generate LLVM IR for integer literal"""
-        self.debug(f"Generating integer literal: {node.value}")
-        reg = self.fresh_var("int")
-        self.definitions.append(f"    {reg} = add i32 0, {node.value}")
-        return reg, "i32"
+    # ----------------------------------------------------------------
+    # FUNCTION(arg, body)
+    # ----------------------------------------------------------------
+    def generate_function(self, node: Function) -> Tuple[ir.Value, ir.Type]:
+        """
+        Generate a curried function.
+        Returns the function and its type.
+        """
 
-    def generate_bool(self, node: Bool) -> Tuple[str, str]:
-        """Generate LLVM IR for boolean literal"""
-        self.debug(f"Generating boolean literal: {node.value}")
-        reg = self.fresh_var("bool")
-        value = 1 if node.value else 0
-        self.definitions.append(f"    {reg} = add i1 0, {value}")
-        return reg, "i1"
+        # Save current state
+        old_builder = self.builder
+        old_vars = self.variables.copy()
+        old_func = self.current_function
 
-    def generate_var(self, node: Var) -> Tuple[str, str]:
+        if isinstance(node.body, Function):
+            # Create function type that always returns a function pointer
+            inner_func_type = ir.FunctionType(self.int_type, # FIXME
+                                        [self.state_ptr_type, self.int_type]) # FIXME
+            return_type = ir.PointerType(inner_func_type)
+            func_type = ir.FunctionType(return_type, 
+                                  [self.state_ptr_type, self.int_type])
+
+            # Create function
+            func_name = self.fresh_name("func")
+            func = ir.Function(self.module, func_type, name=func_name)
+
+            # Create entry block
+            block = func.append_basic_block(name="entry")
+            self.builder = ir.IRBuilder(block)
+            self.current_function = func
+            self.comment(f"Generating curried function({func_name}): {node}")
+
+            # Add parameters to scope
+            state_ptr, arg = func.args
+
+            # Store argument in closure state
+            idx = len(self.variables)
+            self.comment(f"gets pointer to field[{idx}] in the lambda state struct")
+            arg_ptr = self.builder.gep(state_ptr, 
+                                 [ir.Constant(self.int_type, 0),
+                                  ir.Constant(self.int_type, idx)])
+            self.comment(f'store argument(%"{arg.name}") in the lambda state struct')
+            self.builder.store(arg, arg_ptr)
+
+            # Add stored argument to variables
+            self.variables[node.arg.name] = (arg_ptr, self.int_type) #FIXME
+
+            # Generate next function in curry chain
+            next_func, _ = self.generate(node.body)
+            self.comment(f"Return function pointer to inner function: {next_func.name}")
+            self.builder.ret(next_func)
+        else:
+            # Create innermost function
+
+            # Figure out the correct return type
+            if isinstance(node.type, TyCon):
+                type_name = node.type.name
+                type_args = node.type.args
+                ret_type = type_args[0].find()
+                arg_type = type_args[1].find()
+            else:
+                raise TypeError(f"Wrong function type: {node.type}")
+            
+            # Set up function types
+            func_ret_type = self.int_type if ret_type.name == "int" else self.bool_type
+            func_arg_type = self.int_type if arg_type.name == "int" else self.bool_type
+            func_type = ir.FunctionType(func_ret_type, 
+                                        [self.state_ptr_type, func_arg_type])
+        
+            # Create function
+            func_name = self.fresh_name("comp")
+            func = ir.Function(self.module, func_type, name=func_name)
+        
+            # Set up entry block
+            block = func.append_basic_block(name="entry")
+            self.builder = ir.IRBuilder(block)
+            self.current_function = func
+            self.comment(f"Generating innermost function({func.name}): {node}")
+
+            # Get function parameters
+            state_ptr, arg = func.args
+
+            # Store argument with proper type
+            idx = len(self.variables)
+            self.comment(f"gets pointer to field[{idx}] in the lambda state struct")
+            arg_ptr = self.builder.gep(state_ptr,
+                                    [ir.Constant(self.int_type, 0),
+                                    ir.Constant(self.int_type, idx)])
+            self.comment(f'store argument(%"{arg.name}") in the lambda state struct')
+            self.builder.store(arg, arg_ptr)
+            self.variables[node.arg.name] = (arg_ptr, self.int_type) # FIXME unnecessary overwritten below
+
+            for idx, key in enumerate(self.variables.keys()):
+                ptr = self.builder.gep(state_ptr,
+                                    [ir.Constant(self.int_type, 0),
+                                    ir.Constant(self.int_type, idx)])
+                self.variables[key] = (ptr, func_arg_type)  # FIXME the type should be the type of the variable
+
+#                val = self.current_builder.load(ptr)
+
+            # Generate body computation
+            result, _ = self.generate(node.body)
+        
+            # Return result
+            self.builder.ret(result)
+            self.comment(f"Generated final function({func_name}): {node}")
+
+        # Restore state
+        self.builder = old_builder
+        self.variables = old_vars
+        self.current_function = old_func
+        return func, func_type
+
+    # ----------------------------------------------------------------
+    # APPLY(func, arg)
+    # ----------------------------------------------------------------
+    def generate_apply(self, node: Apply) -> Tuple[ir.Value, ir.Type]:
+        """
+        Generate function application.
+        Returns the result value and type.
+        Handles nested applications by processing innermost first.
+        """
+
+        # Process function value, handling nested applications
+        if isinstance(node.func, Apply):
+            # Recursively process inner application first
+            func_val, func_type = self.generate_apply(node.func)
+        elif isinstance(node.func, Var):
+            # Look up function from variables
+            if node.func.name not in self.variables:
+                raise NameError(f"Undefined function: {node.func.name}")
+            func_val, func_type = self.variables[node.func.name]
+        else:
+            raise TypeError(f"No function to be applied {node.raw_structure()}")
+
+        self.comment(f"Generating function application: {node}")
+
+        # Generate argument
+        arg_val, arg_type = self.generate(node.arg)
+        self.comment(f"Generated Apply argument: {node.arg}")
+
+        # Always allocate new closure state
+        if self.state_ptr is None:
+            self.state_ptr = self.builder.alloca(self.state_type, name=self.fresh_name("lambda_state"))
+
+        # Load function value if needed
+        if isinstance(func_val, (ir.GEPInstr, ir.AllocaInstr)):
+            func_val = self.builder.load(func_val)
+
+        # Get function type
+        if isinstance(func_val.type, ir.PointerType):
+            func_ptr_type = func_val.type.pointee
+            if isinstance(func_ptr_type, ir.FunctionType):
+                # Call the function to get next function pointer
+                next_func = self.builder.call(func_val, [self.state_ptr, arg_val])
+                return next_func, next_func.type
+
+        raise TypeError(f"Expected function pointer, got {func_val.type}")
+
+
+    # ----------------------------------------------------------------
+    # LET(name, value, body)
+    # ----------------------------------------------------------------
+    def generate_let(self, node: Let) -> Tuple[ir.Value, ir.Type]:
+        """
+        Generate let binding.
+        Returns the body value and type.
+        """
+        # Generate value
+        val, val_type = self.generate(node.value)
+
+        self.comment(f"Generated Let value: '{node.value}' ,return type: {val_type}")
+
+        # For function values, store directly in variables
+        if isinstance(val, ir.Function) or (isinstance(val_type, ir.PointerType) and 
+                                          isinstance(val_type.pointee, ir.FunctionType)):
+            self.variables[node.name.name] = (val, val_type)
+        else:
+            # For non-function values, store in an alloca
+            alloca = self.builder.alloca(val_type)
+            self.builder.store(val, alloca)
+            self.variables[node.name.name] = (alloca, val_type)
+
+        # Generate body
+        result, result_type = self.generate(node.body)
+
+        self.comment(f"Generated Let body: '{node.body}' , return type: {result_type}")
+
+        # Add return if we're in the main function
+        if self.current_function.name == "main":
+            # Load the value from the result pointer
+            #loaded_result = self.builder.load(result, name="final_result")
+    
+            # Get a pointer to the format string
+            str_ptr = self.builder.gep(self.str_int, [ir.Constant(ir.IntType(64), 0), ir.Constant(ir.IntType(64), 0)], inbounds=True, name="str_ptr")
+    
+            # Call the printf function with the format string and the loaded result
+            self.builder.call(self.printf, [str_ptr, result])
+
+            self.builder.ret(result)
+
+        return result, result_type
+
+    # ----------------------------------------------------------------
+    # VAR(x)
+    # ----------------------------------------------------------------
+    def generate_var(self, node: Var) -> Tuple[ir.Value, ir.Type]:
         """Generate LLVM IR for variable reference"""
-        self.debug(f"Generating variable reference: {node.name}")
         if node.name in self.variables:
-            load_reg = self.fresh_var("load")
-            var_info = self.variables[node.name]
-            if var_info[1] == "function":
-                self.debug(f"Loading function pointer: {node.name}")
-                self.definitions.append(f"    {load_reg} = load i32 (%lambda_args*)*, i32 (%lambda_args*)** {var_info[0]}")
-                return load_reg, "function"
-            else:
-                self.debug(f"Loading variable value: {node.name}")
-                self.definitions.append(f"    {load_reg} = load i32, i32* {var_info[0]}")
-                return load_reg, "i32"
+            var_val, var_type = self.variables[node.name]
+            if not self.builder:
+                raise ValueError("No active IR builder")
+            
+            # Return the variable value directly
+            return var_val, var_type
+            
         raise ValueError(f"Undefined variable: {node.name}")
+    
+    # ----------------------------------------------------------------
+    # BINOP(op, left, right)
+    # ----------------------------------------------------------------
+    def generate_binop(self, node: BinOp) -> Tuple[ir.Value, ir.Type]:
+        """
+        Generate binary operation.
+        Returns the result value and type.
+        """
+        # Generate operands
+        left_val, left_type = self.generate(node.left)
+        right_val, right_type = self.generate(node.right)
 
-    def generate_function(self, node: Function) -> Tuple[str, str]:
-        """Generate LLVM IR for function definition with currying support"""
-        self.debug(f"Generating function with argument: {node.arg.name}")
+        lval = left_val
+        rval = right_val
 
-        # FIXME if node.body is a function, we need to generate curried functions a la curried_add.ll
+        # Load values if they are pointers
+        if isinstance(left_val.type, ir.PointerType):
+            lval = self.builder.load(lval)
+        if isinstance(right_val.type, ir.PointerType):
+            rval = self.builder.load(rval)
 
-        # Generate unique function name based on lambda depth
-        func_name = f"@lambda_{self.lambda_depth}"
-        self.lambda_depth += 1
-
-        # Save current context
-        old_function = self.current_function
-        old_variables = self.variables.copy()
-        old_definitions = self.definitions
-
-        self.current_function = func_name
-        self.variables = old_variables.copy()  # Keep outer scope variables
-        self.definitions = []
-
-        # Function header with lambda_args struct
-        self.definitions.extend([
-            f"define i32 {func_name}(%lambda_args* %args) {{",
-            "entry:"
-        ])
-
-        # Get argument from the lambda_args struct
-        arg_ptr = self.fresh_var(f"arg_{node.arg.name}_ptr")
-        arg_val = self.fresh_var(f"arg_{node.arg.name}")
-        idx = self.lambda_depth - 1
-        self.definitions.extend([
-            f"    {arg_ptr} = getelementptr %lambda_args, %lambda_args* %args, i32 0, i32 {idx}",
-            f"    {arg_val} = load i32, i32* {arg_ptr}"
-        ])
-
-        # Store argument in local variable
-        local_ptr = self.fresh_var(f"local_{node.arg.name}")
-        self.definitions.append(f"    {local_ptr} = alloca i32")
-        self.definitions.append(f"    store i32 {arg_val}, i32* {local_ptr}")
-        self.variables[node.arg.name] = (local_ptr, "i32")
-
-        # Generate function body
-        body_reg, body_type = self.generate(node.body)
-
-        # Return the result
-        self.definitions.extend([
-            f"    ret i32 {body_reg}",
-            "}"
-        ])
-
-        # Add function definition to declarations
-        func_def = "\n".join(self.definitions)
-        self.declarations.append("")
-        self.declarations.extend(func_def.split("\n"))
-
-        # Restore context
-        self.current_function = old_function
-        self.variables = old_variables
-        self.definitions = old_definitions
-
-        return func_name, "function"
-
-    def generate_apply(self, node: Apply) -> Tuple[str, str]:
-        """Generate LLVM IR for function application with currying support"""
-        self.debug("Generating function application")
-        
-        # Generate code for function and argument
-        func_reg, func_type = self.generate(node.func)
-        arg_reg, arg_type = self.generate(node.arg)
-
-        # Allocate and initialize lambda_args struct
-        args_ptr = self.fresh_var("lambda_args")
-        self.definitions.append(f"    {args_ptr} = alloca %lambda_args")
-
-        # Store argument in the struct
-        arg_ptr = self.fresh_var("arg_ptr")
-        self.definitions.extend([
-            f"    {arg_ptr} = getelementptr %lambda_args, %lambda_args* {args_ptr}, i32 0, i32 0",
-            f"    store i32 {arg_reg}, i32* {arg_ptr}"
-        ])
-
-        # Call function with lambda_args struct
-        result_reg = self.fresh_var("call")
-        self.definitions.append(f"    {result_reg} = call i32 {func_reg}(%lambda_args* {args_ptr})")
-        
-        return result_reg, "i32"
-
-    def generate_let(self, node: Let) -> Tuple[str, str]:
-        """Generate LLVM IR for let binding"""
-        self.debug(f"Generating let binding for: {node.name.name}")
-        value_reg, value_type = self.generate(node.value)
-
-        # Allocate space for the variable
-        if value_type == "function":
-            self.debug(f"Storing function pointer in: {node.name.name}")
-            ptr_reg = self.fresh_var(f"{node.name.name}_ptr")
-            self.definitions.append(f"    {ptr_reg} = alloca i32 (%lambda_args*)*")
-            self.definitions.append(f"    store i32 (%lambda_args*)* {value_reg}, i32 (%lambda_args*)** {ptr_reg}")
-            self.variables[node.name.name] = (ptr_reg, "function")
+        # Generate operation
+        if node.op == '+':
+            return self.builder.add(lval, rval), self.int_type
+        elif node.op == '-':
+            return self.builder.sub(lval, rval), self.int_type
+        elif node.op == '*':
+            return self.builder.mul(lval, rval), self.int_type
+        elif node.op == '/':
+            return self.builder.sdiv(lval, rval), self.int_type
+        elif node.op == '==':
+            return self.builder.icmp_signed('==', left_val, right_val), self.bool_type
+        elif node.op == '<':
+            return self.builder.icmp_signed('<', left_val, right_val), self.bool_type
+        elif node.op == '>':
+            return self.builder.icmp_signed('>', left_val, right_val), self.bool_type
         else:
-            self.debug(f"Storing value in: {node.name.name}")
-            ptr_reg = self.fresh_var(f"{node.name.name}_ptr")
-            self.definitions.append(f"    {ptr_reg} = alloca i32")
-            self.definitions.append(f"    store i32 {value_reg}, i32* {ptr_reg}")
-            self.variables[node.name.name] = (ptr_reg, "i32")
+            raise ValueError(f"Unknown operator: {node.op}")
 
-        # Generate body with new variable in scope
-        self.debug("Generating let body")
-        body_reg, body_type = self.generate(node.body)
 
-        return body_reg, body_type
-
-    def generate_binop(self, node: BinOp) -> Tuple[str, str]:
-        """Generate LLVM IR for binary operations"""
-        self.debug(f"Generating binary operation: {node.op}")
-        left_reg, left_type = self.generate(node.left)
-        right_reg, right_type = self.generate(node.right)
-
-        result_reg = self.fresh_var("binop")
-
-        # Map Python operators to LLVM instructions
-        op_map = {
-            "+": "add",
-            "-": "sub",
-            "*": "mul",
-            "/": "sdiv",
-            "&": "and",
-            "|": "or",
-            "==": "icmp eq",
-            "<": "icmp slt",
-            ">": "icmp sgt",
-            "<=": "icmp sle",
-            ">=": "icmp sge"
-        }
-
-        if node.op in op_map:
-            llvm_op = op_map[node.op]
-            if llvm_op.startswith("icmp"):
-                self.debug(f"Generating comparison: {llvm_op}")
-                self.definitions.append(f"    {result_reg} = {llvm_op} i32 {left_reg}, {right_reg}")
-                return result_reg, "i1"
-            else:
-                self.debug(f"Generating arithmetic: {llvm_op}")
-                self.definitions.append(f"    {result_reg} = {llvm_op} i32 {left_reg}, {right_reg}")
-                return result_reg, "i32"
+    # ----------------------------------------------------------------
+    # UNARYOP(op, operand)
+    # ----------------------------------------------------------------
+    def generate_unaryop(self, node: UnaryOp) -> Tuple[ir.Value, ir.Type]:
+        """
+        Generate unary operation.
+        Returns the result value and type.
+        """
+        self.debug(f"Generating unary operation: {node.op}")
+        
+        # Generate operand
+        val, ty = self.generate(node.operand)
+        
+        # Generate operation
+        if node.op == '-':
+            return self.builder.neg(val), self.int_type
+        elif node.op == '!':
+            return self.builder.not_(val), self.bool_type
         else:
-            raise ValueError(f"Unsupported operator: {node.op}")
+            raise ValueError(f"Unknown operator: {node.op}")
 
-    def generate_main(self, ast: Any) -> str:
-        """Generate the main function that wraps the expression"""
-        self.debug("Generating main function")
-        self.definitions = []
-        self.definitions.extend([
-            "define i32 @main() {",
-            "entry:"
-        ])
+# Main is used for testing and debugging
+def main():
+    """Test the LLVM generator with a simple curried function"""
+    # Create AST for: let add = λx.λy.λz.(x + y + z) in ((add 1) 2) 3
+    #expr_str = "let add = λx.λy.λz.(x + y + z) in ((add 1) 2) 3"
+    #expr_str = "let add = 3 + 4 in add"
+    #expr_str = "let id = λx.(x) in (id 8)"
+    #expr_str = "let inc = λx.(x + 1) in (inc 4)"
+    #expr_str = "let add = λx.λy.(x + y) in 3"
+    #expr_str = "let add = λx.λy.(x + y) in ((add 6) 9)"
+    expr_str = "let add = λx.λy.(x + y) in (add 6 9)"
 
-        # Generate code for the expression
-        result_reg, result_type = self.generate(ast)
+    from mfl_ply_parser import parser as ply_parser
+    ast = ply_parser.parse(expr_str)
 
-        # Print the result
-        if result_type == "i32":
-            self.debug("Generating integer print")
-            self.definitions.extend([
-                f"    call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.str.int, i64 0, i64 0), i32 {result_reg})"
-            ])
-        elif result_type == "i1":
-            self.debug("Generating boolean print")
-            # Convert boolean to string pointer
-            true_label = self.fresh_label("true")
-            false_label = self.fresh_label("false")
-            end_label = self.fresh_label("end")
-            str_reg = self.fresh_var("str")
+    from mfl_type_checker import infer_j
+    type_ctx = {}  # Empty typing context
 
-            self.definitions.extend([
-                f"    br i1 {result_reg}, label %{true_label}, label %{false_label}",
-                f"{true_label}:",
-                f"    {str_reg} = getelementptr inbounds [5 x i8], [5 x i8]* @.str.true, i64 0, i64 0",
-                f"    br label %{end_label}",
-                f"{false_label}:",
-                f"    {str_reg} = getelementptr inbounds [6 x i8], [6 x i8]* @.str.false, i64 0, i64 0",
-                f"    br label %{end_label}",
-                f"{end_label}:",
-                f"    call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.str.bool, i64 0, i64 0), i8* {str_reg})"
-            ])
+    # This will annotate the AST with types!
+    infer_j(ast, type_ctx)
 
-        self.definitions.extend([
-            f"    ret i32 0",
-            "}"
-        ])
+    # Generate code
+    generator = LLVMGenerator(verbose=True, generate_comments=True)
+    result, rt = generator.generate(ast)
 
-        # Add main function to declarations
-        self.declarations.append("")  # Add blank line before main
-        self.declarations.extend(self.definitions)
+    print(f"Generated LLVM IR for: '{ast}'")
+    print(f"AST(typed): '{ast.typed_structure()}'")
 
-        self.debug("Code generation complete")
-        return "\n".join(self.declarations)
+    # Verify module
+    llvm_ir = str(generator.module)
+    llvm.parse_assembly(llvm_ir)
+    print("Module verification successful!")
 
-def generate_llvm(ast: Any, verbose: bool = False) -> str:
-    """
-    Generate LLVM IR code from an AST.
-    Entry point for code generation.
-    """
-    generator = LLVMGenerator(verbose)
-    return generator.generate_main(ast)
+    # Write the generated code to file
+    ll_file = "mfl.ll"
+    with open(ll_file, "w") as f:
+        f.write(llvm_ir)
+    print(f"Generated LLVM IR code written to: {ll_file}")
+    print(f"Compile as: clang -O3 -o foo {ll_file}")
+    
+
+if __name__ == "__main__":
+    main()

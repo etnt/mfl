@@ -157,22 +157,6 @@ SKI term: (((S ((S ((S (K S)) ((S ((S (K S)) ((S (K (S (K S)))) ((S ((S (K S)) (
 SKI machine result: 6
  ```
 
-Example, using the LLVM backend (not fully working yet):
-
-```bash
-❯ python3 ./mfl/mfl.py -o double -l "let double = λx.(x*2) in (double 21)"
-Successfully parsed! 
-AST: let double = λx.(x * 2) in (double 21) 
-AST(raw): Let(Var("double"), Function(Var("x"), BinOp("*", Var("x"), Int(2))), Apply(Var("double"), Int(21))) 
-Inferred type: int  
-LLVM IR written to: mfl.ll 
-Compiling as: clang -o double mfl.ll 
-Compilation successful!
-
-❯ ./double
-42
-```
-
 Some fun with `if`:
 
 ```bash
@@ -190,4 +174,21 @@ AST interpreter result: False
 # Note: unary minus not supported atm...
 python3 ./mfl/mfl.py -a "let between = λx.if (x < 0) then False else if (x > 10) then False else True in (between (0 - 1))"
 AST interpreter result: False
+```
+
+Example, using the LLVM backend:
+
+```bash
+python ./mfl/mfl.py -l -o add "let add = λx.λy.(x + y) in (add 6 9)" 
+Successfully parsed!
+AST(pretty): let add = λx.λy.(x + y) in ((add 6) 9)
+AST(typed): Let<int>(Var<->(int, ->(int, int))>("add"), Function<->(int, ->(int, int))>(Var<int>("x"), Function<->(int, int)>(Var<int>("y"), BinOp<int>("+", Var<int>("x"), Var<int>("y")))), Apply<int>(Apply<->(int, int)>(Var<->(int, ->(int, int))>("add"), Int<int>(6)), Int<int>(9)))
+Inferred final type: int  
+Module verification successful!
+Generated LLVM IR code written to: mfl.ll
+Compiling as: clang -O3 -o add mfl.ll 
+Compilation successful!
+
+❯ ./add
+15
 ```

@@ -10,7 +10,6 @@ from mfl_parser import FunctionalParser
 from mfl_ply_parser import parser as ply_parser
 from mfl_type_checker import infer_j
 from mfl_core_erlang_generator import generate_core_erlang
-from mfl_llvm import generate_llvm
 
 def main():
     """
@@ -22,7 +21,7 @@ def main():
     arg_parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output from all modules')
     arg_parser.add_argument('-f', '--frontend-only', action='store_true', help='Only run the parser and type checker')
     arg_parser.add_argument('-b', '--backend-verbose', action='store_true', help='Enable verbose output from backend')
-    arg_parser.add_argument('-o', '--output', default="mfl", help='Output file name (without suffix)')
+    arg_parser.add_argument('-o', '--output', default="a.out", help='Output file name (without suffix)')
     arg_parser.add_argument('-s', '--secd', action='store_true', help='Execute using SECD machine')
     arg_parser.add_argument('-k', '--ski', action='store_true', help='Execute using SKI combinator machine')
     arg_parser.add_argument('-a', '--ast', action='store_true', help='Execute using AST interpreter')
@@ -88,19 +87,22 @@ def main():
                 elif args.llvm:
                     try:
                         # Generate LLVM IR code
-                        llvm_ir = generate_llvm(ast, args.backend_verbose)
-                        if args.verbose:
-                            print("\nGenerated LLVM IR code:")
-                            print(llvm_ir)
+                        from mfl_llvm import LLVMGenerator
+                        generator = LLVMGenerator(verbose=args.backend_verbose, generate_comments=True)
+                        result, _ = generator.generate(ast)
+                        # Verify module
+                        llvm_ir = str(generator.module)
+                        generator.verify_code(llvm_ir)
+                        print("Module verification successful!")
                         # Write the generated code to file
                         ll_file = "mfl.ll"
                         with open(ll_file, "w") as f:
                             f.write(llvm_ir)
-                        print(f"LLVM IR written to: {ll_file}")
-                        print(f"Compiling as: clang -o {args.output} {ll_file}")
+                        print(f"Generated LLVM IR code written to: {ll_file}")
+                        print(f"Compiling as: clang -O3 -o {args.output} {ll_file}")
                         try:
                             # Use shlex.quote to safely handle filenames with spaces or special characters
-                            command = shlex.split(f"clang -o {args.output} {shlex.quote(ll_file)}")
+                            command = shlex.split(f"clang -O3 -o {args.output} {shlex.quote(ll_file)}")
                             result = subprocess.run(command, capture_output=True, text=True, check=True)
                             print("Compilation successful!")
                             print(result.stdout)  # Print compilation output (if any)
