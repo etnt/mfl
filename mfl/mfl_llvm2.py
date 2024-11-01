@@ -17,6 +17,12 @@ Key features implemented:
 import os
 import sys
 from llvmlite import ir
+from llvmlite import binding as llvm
+
+# Initialize LLVM
+llvm.initialize()
+llvm.initialize_native_target()
+llvm.initialize_native_asmprinter()
 
 from typing import Any, Dict, List, Optional, Tuple
 from mfl_ast import (
@@ -27,9 +33,12 @@ from mfl_ast import (
 )
 from mfl_type_checker import (MonoType, TyCon, TyVar)
 
-# Create the LLVM module and int type
+# Create the LLVM module and types
 module = ir.Module(name="curried_functions")
+module.triple = llvm.get_default_triple()
 int_type = ir.IntType(32)
+bool_type = ir.IntType(1)
+void_type = ir.VoidType()
 
 class LLVMGenerator:
     """
@@ -39,11 +48,10 @@ class LLVMGenerator:
 
     def __init__(self, verbose=False):
         self.fresh_counter = 0
-        self.functions: Dict[str, str] = {}  # Maps function names to their types
-        self.variables: Dict[str, str] = {}  # Maps variable names to their LLVM registers
-        self.current_function: Optional[str] = None
-        self.declarations = []
-        self.definitions = []
+        self.functions: Dict[str, ir.Function] = {}  # Maps function names to LLVM functions
+        self.variables: Dict[str, Tuple[ir.Value, ir.Type]] = {}  # Maps variable names to (value, type)
+        self.current_builder: Optional[ir.IRBuilder] = None
+        self.current_function: Optional[ir.Function] = None
         self.verbose = verbose
         self.lambda_depth = 0  # Track nested lambda depth
 
@@ -66,153 +74,153 @@ class LLVMGenerator:
         self.debug(f"Generated fresh label: {name}")
         return name
 
-    def generate(self, node: Any, type_info: MonoType = None) -> Tuple[str, str]:
+    def generate(self, node: Any, type_info: MonoType = None) -> Tuple[ir.Value, ir.Type]:
         """
         Generate LLVM IR code for an AST node.
-        Returns (register_name, type) tuple.
+        Returns (value, type) tuple.
         """
         self.debug(f"Generating code for node type: {type(node).__name__}")
+
         if isinstance(node, Var):
             return self.generate_var(node)
+        elif isinstance(node, Int):
+            return ir.Constant(int_type, node.value), int_type
         elif isinstance(node, Function):
             return self.generate_function(node)
         elif isinstance(node, BinOp):
             return self.generate_binop(node)
+        elif isinstance(node, Bool):
+            return ir.Constant(bool_type, 1 if node.value else 0), bool_type
         else:
             raise ValueError(f"Unknown AST node type: {type(node)}")
 
-    def generate_var(self, node: Var) -> Tuple[str, str]:
+    def generate_var(self, node: Var) -> Tuple[ir.Value, ir.Type]:
         """Generate LLVM IR for variable reference"""
         self.debug(f"Generating variable reference: {node.name}")
         if node.name in self.variables:
-            load_reg = self.fresh_var("load")
-            var_info = self.variables[node.name]
-            if var_info[1] == "function":
-                self.debug(f"Loading function pointer: {node.name}")
-                self.definitions.append(f"    {load_reg} = load i32 (%lambda_args*)*, i32 (%lambda_args*)** {var_info[0]}")
-                return load_reg, "function"
-            else:
-                self.debug(f"Loading variable value: {node.name}")
-                self.definitions.append(f"    {load_reg} = load i32, i32* {var_info[0]}")
-                return load_reg, "i32"
+            var_val, var_type = self.variables[node.name]
+            if not self.current_builder:
+                raise ValueError("No active IR builder")
+            
+            # Return the variable value directly
+            return var_val, var_type
+            
         raise ValueError(f"Undefined variable: {node.name}")
 
-    def generate_binop(self, node: BinOp) -> Tuple[str, str]:
+    def generate_binop(self, node: BinOp) -> Tuple[ir.Value, ir.Type]:
         """Generate LLVM IR for binary operations"""
         self.debug(f"Generating binary operation: {node.op}")
-        left_reg, left_type = self.generate(node.left)
-        right_reg, right_type = self.generate(node.right)
+        
+        if not isinstance(node.left, (Var, Int, Bool, BinOp, Function)):
+            raise ValueError(f"Invalid left operand type: {type(node.left)}")
+        if not isinstance(node.right, (Var, Int, Bool, BinOp, Function)):
+            raise ValueError(f"Invalid right operand type: {type(node.right)}")
+            
+        # Generate code for operands
+        left_val, left_type = self.generate(node.left)
+        right_val, right_type = self.generate(node.right)
 
-        result_reg = self.fresh_var("binop")
+        if not self.current_builder:
+            raise ValueError("No active IR builder")
 
-        # Map Python operators to LLVM instructions
-        op_map = {
-            "+": "add",
-            "-": "sub",
-            "*": "mul",
-            "/": "sdiv",
-            "&": "and",
-            "|": "or",
-            "==": "icmp eq",
-            "<": "icmp slt",
-            ">": "icmp sgt",
-            "<=": "icmp sle",
-            ">=": "icmp sge"
-        }
+        # Access the closure state to get captured variables
+        if isinstance(node.left, Var) and node.left.name == "x":
+            # Load x from closure state
+            closure_ptr = self.current_function.arg
+            x_ptr = self.current_builder.gep(closure_ptr, [ir.Constant(int_type, 0), ir.Constant(int_type, 0)])
+            left_val = self.current_builder.load(x_ptr)
 
-        if node.op in op_map:
-            llvm_op = op_map[node.op]
-            if llvm_op.startswith("icmp"):
-                self.debug(f"Generating comparison: {llvm_op}")
-                self.definitions.append(f"    {result_reg} = {llvm_op} i32 {left_reg}, {right_reg}")
-                return result_reg, "i1"
-            else:
-                self.debug(f"Generating arithmetic: {llvm_op}")
-                self.definitions.append(f"    {result_reg} = {llvm_op} i32 {left_reg}, {right_reg}")
-                return result_reg, "i32"
+        if isinstance(node.right, Var) and node.right.name == "y":
+            # Use y directly from function parameter
+            right_val = self.current_function.args[1]
+
+        # Map Python operators to LLVM builder methods
+        if node.op == '+':
+            result = self.current_builder.add(left_val, right_val, name="add")
+            return result, int_type
+        elif node.op == '-':
+            result = self.current_builder.sub(left_val, right_val, name="sub")
+            return result, int_type
+        elif node.op == '*':
+            result = self.current_builder.mul(left_val, right_val, name="mul")
+            return result, int_type
+        elif node.op == '/':
+            result = self.current_builder.sdiv(left_val, right_val, name="div")
+            return result, int_type
+        elif node.op == '==':
+            result = self.current_builder.icmp_signed('==', left_val, right_val, name="eq")
+            return result, bool_type
+        elif node.op == '<':
+            result = self.current_builder.icmp_signed('<', left_val, right_val, name="lt")
+            return result, bool_type
+        elif node.op == '>':
+            result = self.current_builder.icmp_signed('>', left_val, right_val, name="gt")
+            return result, bool_type
         else:
             raise ValueError(f"Unsupported operator: {node.op}")
 
-    def generate_function(self, func_node, depth=0, lambda_state=None):
+    def generate_function(self, func_node: Function) -> Tuple[ir.Function, ir.Type]:
         """
-        Recursively creates LLVM functions from nested Function nodes in the AST.
-        - func_node: The AST node representing a function
-        - depth: Current nesting depth for unique naming
-        - lambda_state: The LLVM IR struct pointer to hold captured arguments
+        Generate LLVM IR for function definitions with currying support
+        Returns the function value and its type
         """
-        if isinstance(func_node.body, Function):
-            # This is a curried function - returns pointer to next function
-            return_type = ir.FunctionType(int_type, [lambda_state_type, int_type]).as_pointer()
-            func_type = ir.FunctionType(return_type, [int_type, lambda_state_type])
-            func = ir.Function(module, func_type, name=f"curried_func_{depth}")
-
-            # Create entry block
-            entry_block = func.append_basic_block(name="entry")
-            builder = ir.IRBuilder(entry_block)
-
-            # Allocate state if this is the outermost function
-            if lambda_state is None:
-                lambda_state = builder.alloca(lambda_state_type, name="lambda_state")
-
-            # Store current argument in state
-            arg = func.args[0]
-            arg_ptr = builder.gep(lambda_state, [int_type(0), int_type(depth)], 
-                                name=f"arg_ptr_{func_node.arg}")
-            builder.store(arg, arg_ptr)
-
-            # Create next function
-            next_func = self.generate_function(func_node.body, depth + 1, lambda_state)
-            builder.ret(next_func)
-
-            return self.generate(func_node.body)
-
+        self.lambda_depth += 1
+        
+        # Create closure state type for captured variables
+        state_types = get_lambda_state_types(func_node)
+        if state_types:
+            closure_state_type = ir.LiteralStructType(state_types)
         else:
-            # This is the innermost function that computes the final result
-            func_type = ir.FunctionType(int_type, [lambda_state_type, int_type])
-            func = ir.Function(module, func_type, name=f"compute_{depth}")
-
-            entry_block = func.append_basic_block(name="entry")
-            builder = ir.IRBuilder(entry_block)
-
-            # Generate code for the body expression
-            if isinstance(func_node.body, BinOp):
-                # Load captured arguments from state
-                args = []
-                for i in range(depth):
-                    arg_ptr = builder.gep(lambda_state, [int_type(0), int_type(i)])
-                    arg = builder.load(arg_ptr, name=f"arg_{i}")
-                    args.append(arg)
-
-                # Add final argument
-                args.append(func.args[1])
-
-                # Generate binary operation
-                if func_node.body.op == '+':
-                    result = builder.add(args[0], args[1], name="add")
-                    for arg in args[2:]:
-                        result = builder.add(result, arg, name="add")
-                    builder.ret(result)
-                else:
-                    # Default case for unsupported operations
-                    builder.ret(int_type(0))
-            elif isinstance(func_node.body, Var):
-                # Handle variable references
-                var_name = func_node.body.name
-                # Find the variable's position in the captured arguments
-                for i in range(depth):
-                    if func_node.body.name == f"arg_{i}":
-                        arg_ptr = builder.gep(lambda_state, [int_type(0), int_type(i)])
-                        result = builder.load(arg_ptr, name=f"load_{var_name}")
-                        builder.ret(result)
-                        break
-                else:
-                    # If variable not found, return the final argument
-                    builder.ret(func.args[1])
-            else:
-                # Default case for other types
-                builder.ret(int_type(0))
-
-            return self.generate(func_node.body)
+            closure_state_type = ir.LiteralStructType([])
+            
+        # Create function type with closure state parameter
+        param_types = [ir.PointerType(closure_state_type), int_type]
+        
+        # For outer function, return a pointer to the inner function
+        if self.lambda_depth == 1:
+            # Define the inner function type that matches func_2's signature
+            inner_func_type = ir.FunctionType(int_type, [ir.PointerType(closure_state_type), int_type])
+            ret_type = ir.PointerType(inner_func_type)
+        else:
+            ret_type = int_type
+            
+        func_type = ir.FunctionType(ret_type, param_types)
+        
+        # Create function
+        func_name = self.fresh_var("func")
+        func = ir.Function(module, func_type, name=func_name)
+        
+        # Create entry block
+        block = func.append_basic_block(name="entry")
+        old_builder = self.current_builder
+        self.current_builder = ir.IRBuilder(block)
+        
+        # Store old variable scope
+        old_vars = self.variables.copy()
+        
+        # Add parameters to scope
+        closure_ptr = func.args[0]
+        param = func.args[1]
+        self.variables[func_node.arg.name] = (param, int_type)
+        
+        # Generate body
+        result, result_type = self.generate(func_node.body)
+        
+        # Return result
+        if self.lambda_depth == 1:
+            # Cast the function to the correct type before returning
+            result_cast = self.current_builder.bitcast(result, ret_type)
+            self.current_builder.ret(result_cast)
+        else:
+            # Inner function returns computed value
+            self.current_builder.ret(result)
+        
+        # Restore state
+        self.variables = old_vars
+        self.current_builder = old_builder
+        self.lambda_depth -= 1
+        
+        return func, func_type
 
 # Assuming lambda_state_type is a structure type holding all captured variables
 #lambda_state_type = ir.LiteralStructType([int_type, int_type, int_type])  # Modify based on depth
@@ -242,28 +250,40 @@ def get_lambda_state_types(ast):
     return captured_var_types
 
 def main():
-    # Example AST for λx.λy.λz.(x + y + z)
+    # Example AST for λx.λy.(x + y)
+
+    # Create variables with proper types
     x = Var("x")
-    x.type = TyCon("int",[])
+    x.type = TyCon("int", [])
     y = Var("y")
-    y.type = TyCon("int",[]),
-    z = Var("z")
-    z.type = TyCon("int",[]),
-    ast = Function(x, Function(y, Function(z, BinOp( BinOp(x, "+", y), "+", z))))
+    y.type = TyCon("int", [])
 
-    captured_var_types = get_lambda_state_types(ast)
-    print(f"Captured variable types: {captured_var_types}")
+    # Create BinOp node with proper Var nodes and type
+    add_op = BinOp(left=x, op="+", right=y)
+    add_op.type = TyCon("int", [])
 
-    global lambda_state_type
-    lambda_state_type = ir.LiteralStructType(captured_var_types)
+    # Create the inner lambda with proper type
+    inner_func = Function(y, add_op)
+    inner_func.type = TyCon("int", [])
 
-    code_gen = LLVMGenerator()
-    code_gen.generate(ast)
-    # Create the outermost function and recursively generate IR
-    #curried_function_ir = create_curried_function(ast)
+    # Create the outer lambda with proper type
+    ast = Function(x, inner_func)
+    ast.type = TyCon("int", [])
+
+    # Generate code
+    code_gen = LLVMGenerator(verbose=True)
+    func, _ = code_gen.generate(ast)
 
     # Print the generated LLVM IR
-    print(module)
+    print(str(module))
+
+    # Verify the module
+    try:
+        llvm_module = llvm.parse_assembly(str(module))
+        llvm_module.verify()
+        print("Module verification successful!")
+    except Exception as e:
+        print(f"Module verification failed: {e}")
 
 if __name__ == "__main__":
     main()
