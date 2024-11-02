@@ -78,31 +78,31 @@ class LLVMGenerator:
             block = main_func.append_basic_block(name="entry")
             self.builder = ir.IRBuilder(block)
             self.current_function = main_func
-        
+
         if isinstance(node, Int):
             return ir.Constant(self.int_type, node.value), self.int_type
-            
+
         elif isinstance(node, Bool):
             return ir.Constant(self.bool_type, 1 if node.value else 0), self.bool_type
-            
+
         elif isinstance(node, Var):
             return self.generate_var(node)
-            
+
         elif isinstance(node, Function):
             return self.generate_function(node)
-            
+
         elif isinstance(node, Apply):
             return self.generate_apply(node)
-            
+
         elif isinstance(node, Let):
             return self.generate_let(node)
-            
+
         elif isinstance(node, BinOp):
             return self.generate_binop(node)
-            
+
         elif isinstance(node, UnaryOp):
             return self.generate_unaryop(node)
-            
+
         else:
             raise ValueError(f"Unknown node type: {type(node)}")
 
@@ -111,85 +111,103 @@ class LLVMGenerator:
         Generate a curried function.
         Returns the function and its type.
         """
-        self.debug(f"Generating function with arg: {node.arg.name}")
-        
+
         # Save current state
         old_builder = self.builder
         old_vars = self.variables.copy()
-        
-        # Create function type that always returns a function pointer
-        inner_func_type = ir.FunctionType(self.int_type, 
+
+
+        if isinstance(node.body, Function):
+            # Create function type that always returns a function pointer
+            inner_func_type = ir.FunctionType(self.int_type, 
                                         [self.state_ptr_type, self.int_type])
-        return_type = ir.PointerType(inner_func_type)
-        func_type = ir.FunctionType(return_type, 
+            return_type = ir.PointerType(inner_func_type)
+            func_type = ir.FunctionType(return_type, 
                                   [self.state_ptr_type, self.int_type])
-        
-        # Create function
-        func = ir.Function(self.module, func_type, 
+
+            # Create function
+            func = ir.Function(self.module, func_type, 
                          name=self.fresh_name("func"))
-        
-        # Create entry block
-        block = func.append_basic_block(name="entry")
-        self.builder = ir.IRBuilder(block)
-        self.current_function = func
-        
-        # Add parameters to scope
-        state_ptr, arg = func.args
-        
-        # Store argument in closure state
-        idx = len(self.variables)
-        arg_ptr = self.builder.gep(state_ptr, 
+
+            self.debug(f"Generating function {func.name} of type: {node.type.args} with arg: {node.arg.name}")
+
+            # Create entry block
+            block = func.append_basic_block(name="entry")
+            self.builder = ir.IRBuilder(block)
+            self.current_function = func
+
+            # Add parameters to scope
+            state_ptr, arg = func.args
+
+            # Store argument in closure state
+            idx = len(self.variables)
+            arg_ptr = self.builder.gep(state_ptr, 
                                  [ir.Constant(self.int_type, 0),
                                   ir.Constant(self.int_type, idx)],
                                  name=f"arg_ptr_{node.arg.name}")
-        self.builder.store(arg, arg_ptr)
-        
-        # Add stored argument to variables
-        self.variables[node.arg.name] = (arg_ptr, self.int_type)
-        
-        if isinstance(node.body, Function):
+            self.builder.store(arg, arg_ptr)
+
+            # Add stored argument to variables
+            self.variables[node.arg.name] = (arg_ptr, self.int_type)
+
             # Generate next function in curry chain
             next_func, _ = self.generate(node.body)
             self.builder.ret(next_func)
         else:
             # Create computation function
-            comp_func = ir.Function(self.module, inner_func_type,
+            i32_type = ir.IntType(32)  # FIXME we should lookup the type from the AST
+            func_type = ir.FunctionType(i32_type, 
+                                        [self.state_ptr_type, self.int_type])
+            comp_func = ir.Function(self.module, func_type,
                                   name=self.fresh_name("comp"))
             comp_block = comp_func.append_basic_block(name="entry")
-            
+
             # Save state
             temp_builder = self.builder
             temp_vars = self.variables.copy()
-            
+
             # Switch to computation function
             self.builder = ir.IRBuilder(comp_block)
             self.current_function = comp_func
-            
+
             # Generate computation
             result, _ = self.generate(node.body)
             self.builder.ret(result)
-            
+
             # Restore state and return computation function
             self.builder = temp_builder
             self.variables = temp_vars
             self.builder.ret(comp_func)
-        
+
         # Restore original state
         self.builder = old_builder
         self.variables = old_vars
         self.current_function = None
-        
+
+        print(f"Generated function: {node.raw_structure()}\n{func}")
         return func, func_type
 
     def generate_apply(self, node: Apply) -> Tuple[ir.Value, ir.Type]:
         """
         Generate function application.
         Returns the result value and type.
+        Handles nested applications by processing innermost first.
         """
-        self.debug(f"Generating function application: {node.func} {node.arg}")
-        
-        # Generate function and argument
-        func_val, func_type = self.generate(node.func)
+        self.debug(f"Generating function application: {node.func} {node.arg} : {node.raw_structure()}")
+
+        # Process function value, handling nested applications
+        if isinstance(node.func, Apply):
+            # Recursively process inner application first
+            func_val, func_type = self.generate_apply(node.func)
+        elif isinstance(node.func, Var):
+            # Look up function from variables
+            if node.func.name not in self.variables:
+                raise NameError(f"Undefined function: {node.func.name}")
+            func_val, func_type = self.variables[node.func.name]
+        else:
+            raise TypeError(f"No function to be applied {node.raw_structure()}")
+        print(f"func_val: {func_val}, func_type: {func_type}")
+        # Generate argument
         arg_val, arg_type = self.generate(node.arg)
 
         # Always allocate new closure state
@@ -215,10 +233,12 @@ class LLVMGenerator:
         Returns the body value and type.
         """
         self.debug(f"Generating let binding for {node.name.name}")
-        
+
         # Generate value
         val, val_type = self.generate(node.value)
-        
+
+        self.builder.comment(f"Generated Let value for: {node.name.name} ,return type was: {val_type}")
+
         # For function values, store directly in variables
         if isinstance(val, ir.Function) or (isinstance(val_type, ir.PointerType) and 
                                           isinstance(val_type.pointee, ir.FunctionType)):
@@ -228,14 +248,14 @@ class LLVMGenerator:
             alloca = self.builder.alloca(val_type)
             self.builder.store(val, alloca)
             self.variables[node.name.name] = (alloca, val_type)
-        
+
         # Generate body
         result, result_type = self.generate(node.body)
-        
+
         # Add return if we're in the main function
         if self.current_function.name == "main":
             self.builder.ret(result)
-            
+
         return result, result_type
 
     def generate_var(self, node: Var) -> Tuple[ir.Value, ir.Type]:
@@ -315,38 +335,26 @@ class LLVMGenerator:
 def main():
     """Test the LLVM generator with a simple curried function"""
     # Create AST for: let add = λx.λy.λz.(x + y + z) in ((add 1) 2) 3
-    ast = Let(
-        Var("add"),
-        Function(
-            Var("x"),
-            Function(
-                Var("y"), 
-                Function(
-                    Var("z"),
-                    BinOp(op = "+",
-                        left = BinOp(op = "+", left = Var("x"), right = Var("y")),
-                        right = Var("z")
-                    )
-                )
-            )
-        ),
-        Apply(
-            Apply(
-                Apply(Var("add"), Int(1)),
-                Int(2)
-            ),
-            Int(3)
-        )
-    )
-    
+    #expr_str = "let add = λx.λy.λz.(x + y + z) in ((add 1) 2) 3"
+    expr_str = "let add = 3 + 4 in add"
+
+    from mfl_ply_parser import parser as ply_parser
+    ast = ply_parser.parse(expr_str)
+
+    from mfl_type_checker import infer_j
+    type_ctx = {}  # Empty typing context
+
+    # This will annotate the AST with types!
+    infer_j(ast, type_ctx)
+
     # Generate code
     generator = LLVMGenerator(verbose=True)
     result, _ = generator.generate(ast)
-    
+
     # Print generated IR
     print("\nGenerated LLVM IR:")
     print(str(generator.module))
-    
+
     # Verify module
     llvm.parse_assembly(str(generator.module))
     print("\nModule verification successful!")
