@@ -237,7 +237,7 @@ class LLVMGenerator:
         # Generate value
         val, val_type = self.generate(node.value)
 
-        self.builder.comment(f"Generated Let value for: {node.name.name} ,return type was: {val_type}")
+        self.builder.comment(f"Generated Let value: '{node.value}' ,return type: {val_type}")
 
         # For function values, store directly in variables
         if isinstance(val, ir.Function) or (isinstance(val_type, ir.PointerType) and 
@@ -251,6 +251,9 @@ class LLVMGenerator:
 
         # Generate body
         result, result_type = self.generate(node.body)
+
+        self.builder.comment(f"Generated Let body: '{node.body}' , return type: {result_type}")
+
 
         # Add return if we're in the main function
         if self.current_function.name == "main":
@@ -352,7 +355,7 @@ def main():
     result, _ = generator.generate(ast)
 
     # Print generated IR
-    print("\nGenerated LLVM IR:")
+    print(f"\nGenerated LLVM IR for: '{ast}'\n")
     print(str(generator.module))
 
     # Verify module
