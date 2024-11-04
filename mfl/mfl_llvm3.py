@@ -157,15 +157,10 @@ class LLVMGenerator:
         old_vars = self.variables.copy()
         old_func = self.current_function
 
-        # Initialize builder if not already done
-        if self.builder is None:
-            block = func.append_basic_block(name="entry")
-            self.builder = ir.IRBuilder(block)
-
         if isinstance(node.body, Function):
             # Create function type that always returns a function pointer
-            inner_func_type = ir.FunctionType(self.int_type, 
-                                        [self.state_ptr_type, self.int_type])
+            inner_func_type = ir.FunctionType(self.int_type, # FIXME
+                                        [self.state_ptr_type, self.int_type]) # FIXME
             return_type = ir.PointerType(inner_func_type)
             func_type = ir.FunctionType(return_type, 
                                   [self.state_ptr_type, self.int_type])
@@ -180,25 +175,27 @@ class LLVMGenerator:
             block = func.append_basic_block(name="entry")
             self.builder = ir.IRBuilder(block)
             self.current_function = func
+            self.comment(f"Generating curried function({func_name}): {node}")
 
             # Add parameters to scope
             state_ptr, arg = func.args
 
             # Store argument in closure state
             idx = len(self.variables)
+            self.comment(f"gets pointer to field[{idx}] in the lambda state struct")
             arg_ptr = self.builder.gep(state_ptr, 
                                  [ir.Constant(self.int_type, 0),
-                                  ir.Constant(self.int_type, idx)],
-                                 name=f"arg_ptr_{node.arg.name}")
+                                  ir.Constant(self.int_type, idx)])
+            self.comment(f'store argument(%"{arg.name}") in the lambda state struct')
             self.builder.store(arg, arg_ptr)
 
             # Add stored argument to variables
-            self.variables[node.arg.name] = (arg_ptr, self.int_type)
+            self.variables[node.arg.name] = (arg_ptr, self.int_type) #FIXME
 
             # Generate next function in curry chain
             next_func, _ = self.generate(node.body)
+            self.comment(f"Return function pointer to inner function: {next_func.name}")
             self.builder.ret(next_func)
-            self.comment(f"Generated curried function({func_name}): {node}")
         else:
             # Create computation function
             print(f"Function {node} with arg: {node.arg}")
@@ -226,26 +223,28 @@ class LLVMGenerator:
             block = func.append_basic_block(name="entry")
             self.builder = ir.IRBuilder(block)
             self.current_function = func
+            self.comment(f"Generating innermost function({func.name}): {node}")
 
             # Get function parameters
             state_ptr, arg = func.args
 
             # Store argument with proper type
             idx = len(self.variables)
+            self.comment(f"gets pointer to field[{idx}] in the lambda state struct")
             arg_ptr = self.builder.gep(state_ptr,
                                     [ir.Constant(self.int_type, 0),
                                     ir.Constant(self.int_type, idx)])
-        
-            # Store with type conversion if needed
-            if arg_type.name != ret_type.name:
-                if arg_type.name == "bool" and ret_type.name == "int":
-                    arg = self.builder.zext(arg, self.int_type)
-                elif arg_type.name == "int" and ret_type.name == "bool":
-                    arg = self.builder.icmp_unsigned('!=', arg, 
-                                                ir.Constant(self.int_type, 0))
-        
+            self.comment(f'store argument(%"{arg.name}") in the lambda state struct')
             self.builder.store(arg, arg_ptr)
-            self.variables[node.arg.name] = (arg_ptr, func_arg_type)
+            self.variables[node.arg.name] = (arg_ptr, self.int_type) # FIXME unnecessary overwritten below
+
+            for idx, key in enumerate(self.variables.keys()):
+                ptr = self.builder.gep(state_ptr,
+                                    [ir.Constant(self.int_type, 0),
+                                    ir.Constant(self.int_type, idx)])
+                self.variables[key] = (ptr, func_arg_type)  # FIXME the type should be the type of the variable
+
+#                val = self.current_builder.load(ptr)
 
             # Generate body computation
             result, _ = self.generate(node.body)
@@ -254,7 +253,6 @@ class LLVMGenerator:
             self.builder.ret(result)
             self.comment(f"Generated final function({func_name}): {node}")
 
-        print(f"Generated function: {node.raw_structure()}\n{func}")
         # Restore state
         self.builder = old_builder
         self.variables = old_vars
@@ -280,8 +278,6 @@ class LLVMGenerator:
             func_val, func_type = self.variables[node.func.name]
         else:
             raise TypeError(f"No function to be applied {node.raw_structure()}")
-
-        print(f"func_val: {func_val}, func_type: {func_type}")
 
         # Generate argument
         arg_val, arg_type = self.generate(node.arg)
@@ -347,10 +343,20 @@ class LLVMGenerator:
         return result, result_type
 
     def generate_var(self, node: Var) -> Tuple[ir.Value, ir.Type]:
-        """
-        Generate variable reference.
-        Returns the variable value and type.
-        """
+        """Generate LLVM IR for variable reference"""
+        self.debug(f"Generating variable reference: {node.name}")
+        if node.name in self.variables:
+            var_val, var_type = self.variables[node.name]
+            if not self.builder:
+                raise ValueError("No active IR builder")
+            
+            # Return the variable value directly
+            return var_val, var_type
+            
+        raise ValueError(f"Undefined variable: {node.name}")
+    
+    """ def generate_var(self, node: Var) -> Tuple[ir.Value, ir.Type]:
+
         self.debug(f"Generating variable reference: {node.name}")
 
         if node.name not in self.variables:
@@ -376,28 +382,37 @@ class LLVMGenerator:
 
         # For immediate values
         self.comment(f"Generate immediate value, Var: {node}")
-        return val, ty
+        return val, ty """
 
     def generate_binop(self, node: BinOp) -> Tuple[ir.Value, ir.Type]:
         """
         Generate binary operation.
         Returns the result value and type.
         """
-        self.debug(f"Generating binary operation: {node.op}")
+        self.debug(f"Generating binary operation: {node.op} , variables: {self.variables}")
 
         # Generate operands
         left_val, left_type = self.generate(node.left)
         right_val, right_type = self.generate(node.right)
 
+        lval = left_val
+        rval = right_val
+
+        # Load values if they are pointers
+        if isinstance(left_val.type, ir.PointerType):
+            lval = self.builder.load(lval)
+        if isinstance(right_val.type, ir.PointerType):
+            rval = self.builder.load(rval)
+
         # Generate operation
         if node.op == '+':
-            return self.builder.add(left_val, right_val), self.int_type
+            return self.builder.add(lval, rval), self.int_type
         elif node.op == '-':
-            return self.builder.sub(left_val, right_val), self.int_type
+            return self.builder.sub(lval, rval), self.int_type
         elif node.op == '*':
-            return self.builder.mul(left_val, right_val), self.int_type
+            return self.builder.mul(lval, rval), self.int_type
         elif node.op == '/':
-            return self.builder.sdiv(left_val, right_val), self.int_type
+            return self.builder.sdiv(lval, rval), self.int_type
         elif node.op == '==':
             return self.builder.icmp_signed('==', left_val, right_val), self.bool_type
         elif node.op == '<':
@@ -430,7 +445,10 @@ def main():
     # Create AST for: let add = λx.λy.λz.(x + y + z) in ((add 1) 2) 3
     #expr_str = "let add = λx.λy.λz.(x + y + z) in ((add 1) 2) 3"
     #expr_str = "let add = 3 + 4 in add"
-    expr_str = "let id = λx.(x) in (id 8)"
+    #expr_str = "let id = λx.(x) in (id 8)"
+    #expr_str = "let inc = λx.(x + 1) in (inc 4)"
+    #expr_str = "let add = λx.λy.(x + y) in 3"
+    expr_str = "let add = λx.λy.(x + y) in ((add 6) 9)"
 
     from mfl_ply_parser import parser as ply_parser
     ast = ply_parser.parse(expr_str)
