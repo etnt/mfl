@@ -46,18 +46,22 @@ class LLVMGenerator:
        
         # Define some useful string constants
         self.str_int = ir.GlobalVariable(self.module, ir.ArrayType(ir.IntType(8), 3), name=".str.int")
+        self.str_int.linkage = 'private'
         self.str_int.global_constant = True
         self.str_int.initializer = ir.Constant(ir.ArrayType(ir.IntType(8), 3), bytearray(b"%d\00"))
 
         self.str_bool = ir.GlobalVariable(self.module, ir.ArrayType(ir.IntType(8), 3), name=".str.bool")
+        self.str_bool.linkage = 'private'
         self.str_bool.global_constant = True
         self.str_bool.initializer = ir.Constant(ir.ArrayType(ir.IntType(8), 3), bytearray(b"%s\00"))
 
         self.str_true = ir.GlobalVariable(self.module, ir.ArrayType(ir.IntType(8), 5), name=".str.true")
+        self.str_true.linkage = 'private'
         self.str_true.global_constant = True
         self.str_true.initializer = ir.Constant(ir.ArrayType(ir.IntType(8), 5), bytearray(b"true\00"))
 
         self.str_false = ir.GlobalVariable(self.module, ir.ArrayType(ir.IntType(8), 6), name=".str.false")
+        self.str_false.linkage = 'private'
         self.str_false.global_constant = True
         self.str_false.initializer = ir.Constant(ir.ArrayType(ir.IntType(8), 6), bytearray(b"false\00"))
 
