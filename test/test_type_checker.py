@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(current_dir, '../mfl'))
 
 from mfl_type_checker import (
     Var, Int, Bool, Function, Apply, Let, BinOp, UnaryOp,
-    Forall, IntType, BoolType, infer_j
+    Forall, IntType, BoolType, infer_j, If, LetRec
 )
 
 class TestTypeChecker(unittest.TestCase):
@@ -69,6 +69,17 @@ class TestTypeChecker(unittest.TestCase):
         """
         ctx = {}
         expr = Let(Var("id"), Function(Var("x"), Var("x")), Apply(Var("id"), Int(42)))
+        inferred_type = infer_j(expr, ctx)
+        self.assertEqual(str(inferred_type), "int")
+        self.assertEqual(expr.body.type, IntType)
+
+
+    def test_fibonacci(self):
+        """
+        Test type inference for the Fibonacci function.
+        """
+        ctx = {}
+        expr = LetRec(Var("fibonacci"), Function(Var("x"), If(BinOp("==", Var("x"), Int(0)), Int(0), If(BinOp("==", Var("x"), Int(1)), Int(1), BinOp("+", Apply(Var("fibonacci"), BinOp("-", Var("x"), Int(1))), Apply(Var("fibonacci"), BinOp("-", Var("x"), Int(2))))))), Apply(Var("fibonacci"), Int(5)))
         inferred_type = infer_j(expr, ctx)
         self.assertEqual(str(inferred_type), "int")
         self.assertEqual(expr.body.type, IntType)
