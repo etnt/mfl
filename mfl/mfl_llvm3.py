@@ -36,9 +36,30 @@ class LLVMGenerator:
     Handles curried functions by using closure state to hold captured variables.
     """
     def __init__(self, verbose=False, generate_comments=True):
+        # Debug output
+        self.verbose = verbose
+        self.generate_comments = generate_comments
+
+        # Counter for generating unique names
+        self.fresh_counter = 0
+
+       # Current IR builder
+        self.builder: Optional[ir.IRBuilder] = None
+        
+        # Track current function being generated
+        self.current_function: Optional[ir.Function] = None
+        
+        # Symbol table for variables
+        self.variables: Dict[str, Tuple[ir.Value, ir.Type]] = {}
+
         # Create module to hold IR code
-        self.module = ir.Module(name="curried_functions")
+        self.module = ir.Module(name="MFL Generated Module")
         self.module.triple = llvm.get_default_triple()
+        
+        # Basic types we'll use
+        self.int_type = ir.IntType(32)
+        self.bool_type = ir.IntType(1)
+        self.void_type = ir.VoidType()
 
         # Declare the printf function
         self.printf_ty = ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))], var_arg=True)
@@ -64,31 +85,13 @@ class LLVMGenerator:
         self.str_false.linkage = 'private'
         self.str_false.global_constant = True
         self.str_false.initializer = ir.Constant(ir.ArrayType(ir.IntType(8), 6), bytearray(b"false\00"))
-
         
-        # Current IR builder
-        self.builder: Optional[ir.IRBuilder] = None
-        
-        # Track current function being generated
-        self.current_function: Optional[ir.Function] = None
-        
-        # Variable scope management
-        self.variables: Dict[str, Tuple[ir.Value, ir.Type]] = {}
-        
-        # Counter for generating unique names
-        self.fresh_counter = 0
-        
-        # Debug output flag
-        self.verbose = verbose
-        self.generate_comments = generate_comments
-        
-        # Basic types we'll use
-        self.int_type = ir.IntType(32)
-        self.bool_type = ir.IntType(1)
-        self.void_type = ir.VoidType()
-        
-        # Type for closure state (holds captured variables)
-        self.state_type = ir.LiteralStructType([self.int_type] * 3)  # Can hold 3 ints
+        # Setup the lambda closure state (holds captured variables)
+        # Create named struct type
+        self.state_type = ir.global_context.get_identified_type("lambda_state")
+        lambda_state_size = 8   # Holding 8 variables for now
+        self.state_type.set_body(*[self.int_type] * lambda_state_size)  
+        # Create pointer type to named struct
         self.state_ptr_type = ir.PointerType(self.state_type)
 
     def debug(self, msg: str) -> None:
@@ -288,7 +291,7 @@ class LLVMGenerator:
         self.comment(f"Generated Apply argument: {node.arg}")
 
         # Always allocate new closure state
-        state_ptr = self.builder.alloca(self.state_type)
+        state_ptr = self.builder.alloca(self.state_type, name="lambda_state")
 
         # Load function value if needed
         if isinstance(func_val, (ir.GEPInstr, ir.AllocaInstr)):
