@@ -16,14 +16,15 @@ from mfl_type_checker import (
     TyVar, TyCon
 )
 
-import builtins
-import inspect
-
-# Override the print function to include line number
-def print(*args, **kwargs):
-    frame = inspect.currentframe().f_back
-    builtins.print(f"<{frame.f_lineno}>: ", end="")
-    builtins.print(*args, **kwargs)
+#import builtins
+#import inspect
+#
+## Override the print function to include line number
+#def print(*args, **kwargs):
+#    frame = inspect.currentframe().f_back
+#    builtins.print(f"<{frame.f_lineno}>: ", end="")
+#
+#     builtins.print(*args, **kwargs)
 
 # Initialize LLVM
 llvm.initialize()
@@ -117,8 +118,6 @@ class LLVMGenerator:
         Generate LLVM IR for an AST node.
         Returns (value, type) tuple.
         """
-        self.debug(f"Generating code for {type(node).__name__}")
-        
         # Initialize builder if not already done
         if self.builder is None:
             # Create main function
@@ -155,6 +154,9 @@ class LLVMGenerator:
         else:
             raise ValueError(f"Unknown node type: {type(node)}")
 
+    # ----------------------------------------------------------------
+    # FUNCTION(arg, body)
+    # ----------------------------------------------------------------
     def generate_function(self, node: Function) -> Tuple[ir.Value, ir.Type]:
         """
         Generate a curried function.
@@ -177,8 +179,6 @@ class LLVMGenerator:
             # Create function
             func_name = self.fresh_name("func")
             func = ir.Function(self.module, func_type, name=func_name)
-
-            self.debug(f"Generating function {func.name} of type: {node.type.args} with arg: {node.arg.name}")
 
             # Create entry block
             block = func.append_basic_block(name="entry")
@@ -206,8 +206,7 @@ class LLVMGenerator:
             self.comment(f"Return function pointer to inner function: {next_func.name}")
             self.builder.ret(next_func)
         else:
-            # Create computation function
-            print(f"Function {node} with arg: {node.arg}")
+            # Create innermost function
 
             # Figure out the correct return type
             if isinstance(node.type, TyCon):
@@ -268,6 +267,9 @@ class LLVMGenerator:
         self.current_function = old_func
         return func, func_type
 
+    # ----------------------------------------------------------------
+    # APPLY(func, arg)
+    # ----------------------------------------------------------------
     def generate_apply(self, node: Apply) -> Tuple[ir.Value, ir.Type]:
         """
         Generate function application.
@@ -312,13 +314,14 @@ class LLVMGenerator:
         raise TypeError(f"Expected function pointer, got {func_val.type}")
 
 
+    # ----------------------------------------------------------------
+    # LET(name, value, body)
+    # ----------------------------------------------------------------
     def generate_let(self, node: Let) -> Tuple[ir.Value, ir.Type]:
         """
         Generate let binding.
         Returns the body value and type.
         """
-        self.debug(f"Generating Let binding for {node.name.name}")
-
         # Generate value
         val, val_type = self.generate(node.value)
 
@@ -354,9 +357,11 @@ class LLVMGenerator:
 
         return result, result_type
 
+    # ----------------------------------------------------------------
+    # VAR(x)
+    # ----------------------------------------------------------------
     def generate_var(self, node: Var) -> Tuple[ir.Value, ir.Type]:
         """Generate LLVM IR for variable reference"""
-        self.debug(f"Generating variable reference: {node.name}")
         if node.name in self.variables:
             var_val, var_type = self.variables[node.name]
             if not self.builder:
@@ -367,42 +372,14 @@ class LLVMGenerator:
             
         raise ValueError(f"Undefined variable: {node.name}")
     
-    """ def generate_var(self, node: Var) -> Tuple[ir.Value, ir.Type]:
-
-        self.debug(f"Generating variable reference: {node.name}")
-
-        if node.name not in self.variables:
-            raise NameError(f"Undefined variable: {node.name} in {self.variables}")
-
-        val, ty = self.variables[node.name]
-
-        # For function values, return directly
-        if isinstance(val, ir.Function):
-            self.comment(f"Generate function value, Var: {node}")
-            return val, ty
-        elif isinstance(ty, ir.PointerType) and isinstance(ty.pointee, ir.FunctionType):
-            if isinstance(val, (ir.GEPInstr, ir.AllocaInstr)):
-                self.comment(f"Generate func ptr stored in memory, Var: {node}")
-                return self.builder.load(val), ty
-            self.comment(f"Generate func ptr, Var: {node}")
-            return val, ty
-
-        # For values stored in memory
-        if isinstance(val, (ir.GEPInstr, ir.AllocaInstr)):
-            self.comment(f"Generated value stored in memory, Var: {node}")
-            return self.builder.load(val), ty
-
-        # For immediate values
-        self.comment(f"Generate immediate value, Var: {node}")
-        return val, ty """
-
+    # ----------------------------------------------------------------
+    # BINOP(op, left, right)
+    # ----------------------------------------------------------------
     def generate_binop(self, node: BinOp) -> Tuple[ir.Value, ir.Type]:
         """
         Generate binary operation.
         Returns the result value and type.
         """
-        self.debug(f"Generating binary operation: {node.op} , variables: {self.variables}")
-
         # Generate operands
         left_val, left_type = self.generate(node.left)
         right_val, right_type = self.generate(node.right)
@@ -434,6 +411,10 @@ class LLVMGenerator:
         else:
             raise ValueError(f"Unknown operator: {node.op}")
 
+
+    # ----------------------------------------------------------------
+    # UNARYOP(op, operand)
+    # ----------------------------------------------------------------
     def generate_unaryop(self, node: UnaryOp) -> Tuple[ir.Value, ir.Type]:
         """
         Generate unary operation.
@@ -452,6 +433,7 @@ class LLVMGenerator:
         else:
             raise ValueError(f"Unknown operator: {node.op}")
 
+# Main is used for testing and debugging
 def main():
     """Test the LLVM generator with a simple curried function"""
     # Create AST for: let add = λx.λy.λz.(x + y + z) in ((add 1) 2) 3
@@ -471,32 +453,25 @@ def main():
 
     # This will annotate the AST with types!
     infer_j(ast, type_ctx)
-    print(f"AST(typed): {ast.typed_structure()}")
 
     # Generate code
     generator = LLVMGenerator(verbose=True, generate_comments=True)
     result, rt = generator.generate(ast)
 
-    print(f"Generated result: {result} ,rt: {rt}")
+    print(f"Generated LLVM IR for: '{ast}'")
+    print(f"AST(typed): '{ast.typed_structure()}'")
 
-    # Print generated IR
-    print(f"\nGenerated LLVM IR for: '{ast}'")
-    print(f"AST(typed): '{ast.typed_structure()}'\n")
-    llvm_ir = str(generator.module)
-    
     # Verify module
-    print(llvm_ir)
+    llvm_ir = str(generator.module)
     llvm.parse_assembly(llvm_ir)
-    print("\nModule verification successful!")
-
-    print(llvm_ir)
+    print("Module verification successful!")
 
     # Write the generated code to file
     ll_file = "mfl.ll"
     with open(ll_file, "w") as f:
         f.write(llvm_ir)
-    print(f"\nGenerated LLVM IR code written to: {ll_file}")
-
+    print(f"Generated LLVM IR code written to: {ll_file}")
+    print(f"Compile as: clang -O3 -o foo {ll_file}")
     
 
 if __name__ == "__main__":
