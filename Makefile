@@ -34,7 +34,7 @@ install-requirements:
 	$(PIP) install -r $(REQUIREMENTS)
 
 .PHONY: test
-test: test_ast test_type test_ply_parser test_secd test_ski
+test: test_ast test_type test_ply_parser test_secd test_ski test_llvm
 
 .PHONY: test_ast
 test_ast:
@@ -59,3 +59,7 @@ test_type:
 .PHONY: test_ski
 test_ski:
 	(cd test; ../venv/bin/$(PYTHON) -m unittest test_ski.py -v )
+
+.PHONY: test_llvm
+test_llvm:
+	(cd test; ../venv/bin/$(PYTHON) -m unittest test_llvm.py -v )

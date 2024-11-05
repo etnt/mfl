@@ -12,7 +12,16 @@ MonoType = TypeVar('MonoType')
 class ASTNode:
     """Base class for all AST nodes with raw structure printing capability"""
     def __init__(self):
+        # To hold type information
         self.type: Optional['MonoType'] = None
+
+        # To hold LLVM IR information
+        self.llvm: Dict[str, str] = {}
+
+    # The method allows you to add or change an attribute of an object using
+    # strings to specify the attribute's name.
+    def _set_attr(self, name, value):
+        self.__dict__[name] = value
 
     def raw_structure(self):
         """Return the raw AST structure as a string"""

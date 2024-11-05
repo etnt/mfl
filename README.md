@@ -192,3 +192,21 @@ Compilation successful!
 ❯ ./add
 15
 ```
+
+## LLVM IR Generation
+
+Compiling to native machine code, on Mac:
+
+```bash
+clang -O3 -o add mfl.ll
+```
+
+An alternative way, where we can inspect the optimized IR code:
+
+```bash
+# First: brew install llvm
+
+$ /opt/homebrew/opt/llvm/bin/opt -S -O3 mfl.ll -o mfl_optimized.ll
+$ /opt/homebrew/opt/llvm/bin/llc -filetype=obj mfl_optimized.ll -o mfl.o
+$ clang -o add mfl.o
+```

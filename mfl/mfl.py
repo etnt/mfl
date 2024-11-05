@@ -89,7 +89,7 @@ def main():
                         # Generate LLVM IR code
                         from mfl_llvm import LLVMGenerator
                         generator = LLVMGenerator(verbose=args.backend_verbose, generate_comments=True)
-                        result, _ = generator.generate(ast)
+                        result = generator.generate(ast)
                         # Verify module
                         llvm_ir = str(generator.module)
                         generator.verify_code(llvm_ir)
