@@ -173,16 +173,23 @@ class LLVMGenerator:
         old_func = self.current_function
 
         if isinstance(node.body, Function):
-            # Create function type that always returns a function pointer
-            inner_func_type = ir.FunctionType(self.int_type, # FIXME
-                                        [self.state_ptr_type, self.int_type]) # FIXME
-            return_type = ir.PointerType(inner_func_type)
-            func_type = ir.FunctionType(return_type, 
-                                  [self.state_ptr_type, self.int_type])
-            self.debug(f"----- 1 FUNCTION TYPE: {func_type}")
+
+            # First create the inner function type that will be returned
+            inner_func_type = ir.FunctionType(self.int_type,
+                                    [self.state_ptr_type, self.int_type])
+            
+            # Create pointer to function type - this is what we'll return
+            inner_func_ptr_type = ir.PointerType(inner_func_type)
+
+            # Create current function type that returns the function pointer
+            func_type = ir.FunctionType(inner_func_ptr_type,  # Return type is pointer to function
+                                            [self.state_ptr_type, self.int_type])
+            func_ret_type = func_type
             # Create function
             func_name = self.fresh_name("func")
             func = ir.Function(self.module, func_type, name=func_name)
+
+            self.comment(f"Curried function({func_name}) with return type: {func_type}")
 
             # Create entry block
             block = func.append_basic_block(name="entry")
@@ -206,8 +213,9 @@ class LLVMGenerator:
             self.variables[node.arg.name] = (arg_ptr, self.int_type) #FIXME
 
             # Generate next function in curry chain
-            next_func, _ = self.generate(node.body)
+            next_func, next_func_type = self.generate(node.body)
             self.comment(f"Return function pointer to inner function: {next_func.name}")
+
             self.builder.ret(next_func)
         else:
             # Create innermost function
@@ -226,12 +234,13 @@ class LLVMGenerator:
             func_arg_type = self.int_type if arg_type.name == "int" else self.bool_type
             func_type = ir.FunctionType(func_ret_type, 
                                         [self.state_ptr_type, func_arg_type])
-            self.debug(f"----- 2 FUNCTION TYPE: {func_type}")
 
             # Create function
             func_name = self.fresh_name("comp")
             func = ir.Function(self.module, func_type, name=func_name)
         
+            self.comment(f"Innermost Function({func_name}) with return type: {func_type}")
+
             # Set up entry block
             block = func.append_basic_block(name="entry")
             self.builder = ir.IRBuilder(block)
@@ -257,10 +266,8 @@ class LLVMGenerator:
                                     ir.Constant(self.int_type, idx)])
                 self.variables[key] = (ptr, func_arg_type)  # FIXME the type should be the type of the variable
 
-#                val = self.current_builder.load(ptr)
-
             # Generate body computation
-            result, _ = self.generate(node.body)
+            result, _result_type = self.generate(node.body)
         
             # Return result
             self.builder.ret(result)
@@ -270,8 +277,8 @@ class LLVMGenerator:
         self.builder = old_builder
         self.variables = old_vars
         self.current_function = old_func
-        self.debug(f"RETURN: type: {func_type} , node: {node}")
-        return func, func_type
+
+        return func, func_ret_type
 
     # ----------------------------------------------------------------
     # APPLY(func, arg)
@@ -475,7 +482,8 @@ def main():
         llvm.parse_assembly(llvm_ir)
         print("Module verification successful!")
     except RuntimeError as e:
-        print(llvm_ir)
+        for i, line in enumerate(llvm_ir.splitlines(), 1):
+            print(f"{i:>{2}} | {line}")
         print(f"Module verification failed: {e}")
 
 
