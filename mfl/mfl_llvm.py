@@ -179,7 +179,7 @@ class LLVMGenerator:
             return_type = ir.PointerType(inner_func_type)
             func_type = ir.FunctionType(return_type, 
                                   [self.state_ptr_type, self.int_type])
-
+            self.debug(f"----- 1 FUNCTION TYPE: {func_type}")
             # Create function
             func_name = self.fresh_name("func")
             func = ir.Function(self.module, func_type, name=func_name)
@@ -226,7 +226,8 @@ class LLVMGenerator:
             func_arg_type = self.int_type if arg_type.name == "int" else self.bool_type
             func_type = ir.FunctionType(func_ret_type, 
                                         [self.state_ptr_type, func_arg_type])
-        
+            self.debug(f"----- 2 FUNCTION TYPE: {func_type}")
+
             # Create function
             func_name = self.fresh_name("comp")
             func = ir.Function(self.module, func_type, name=func_name)
@@ -269,6 +270,7 @@ class LLVMGenerator:
         self.builder = old_builder
         self.variables = old_vars
         self.current_function = old_func
+        self.debug(f"RETURN: type: {func_type} , node: {node}")
         return func, func_type
 
     # ----------------------------------------------------------------
@@ -294,6 +296,7 @@ class LLVMGenerator:
             raise TypeError(f"No function to be applied {node.raw_structure()}")
 
         self.comment(f"Generating function application: {node}")
+        self.debug(f"Generating function application: {node}")
 
         # Generate argument
         arg_val, arg_type = self.generate(node.arg)
@@ -314,8 +317,8 @@ class LLVMGenerator:
                 # Call the function to get next function pointer
                 next_func = self.builder.call(func_val, [self.state_ptr, arg_val])
                 return next_func, next_func.type
-
-        raise TypeError(f"Expected function pointer, got {func_val.type}")
+        else:
+            return func_val, func_val.type
 
 
     # ----------------------------------------------------------------
@@ -441,13 +444,14 @@ class LLVMGenerator:
 def main():
     """Test the LLVM generator with a simple curried function"""
     # Create AST for: let add = λx.λy.λz.(x + y + z) in ((add 1) 2) 3
-    #expr_str = "let add = λx.λy.λz.(x + y + z) in ((add 1) 2) 3"
+    expr_str = "let add = λx.λy.λz.(x + y + z) in ((add 1) 2) 3"
     #expr_str = "let add = 3 + 4 in add"
     #expr_str = "let id = λx.(x) in (id 8)"
     #expr_str = "let inc = λx.(x + 1) in (inc 4)"
     #expr_str = "let add = λx.λy.(x + y) in 3"
     #expr_str = "let add = λx.λy.(x + y) in ((add 6) 9)"
-    expr_str = "let add = λx.λy.(x + y) in (add 6 9)"
+    #expr_str = "let add = λx.λy.(x + y) in (add 6 9)"
+    #expr_str = "let inc = let add1 = λx.λy.(x+y) in (add1 1) in (inc 4)"
 
     from mfl_ply_parser import parser as ply_parser
     ast = ply_parser.parse(expr_str)
@@ -467,8 +471,13 @@ def main():
 
     # Verify module
     llvm_ir = str(generator.module)
-    llvm.parse_assembly(llvm_ir)
-    print("Module verification successful!")
+    try:
+        llvm.parse_assembly(llvm_ir)
+        print("Module verification successful!")
+    except RuntimeError as e:
+        print(llvm_ir)
+        print(f"Module verification failed: {e}")
+
 
     # Write the generated code to file
     ll_file = "mfl.ll"
