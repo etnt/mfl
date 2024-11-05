@@ -93,6 +93,8 @@ class LLVMGenerator:
         self.state_type.set_body(*[self.int_type] * lambda_state_size)  
         # Create pointer type to named struct
         self.state_ptr_type = ir.PointerType(self.state_type)
+        # Pointer to allocated lambda state struct
+        self.state_ptr = None
 
     def debug(self, msg: str) -> None:
         """Print debug message if verbose mode is enabled"""
@@ -272,7 +274,6 @@ class LLVMGenerator:
         Returns the result value and type.
         Handles nested applications by processing innermost first.
         """
-        self.debug(f"Generating function application: {node.func} {node.arg} : {node.raw_structure()}")
 
         # Process function value, handling nested applications
         if isinstance(node.func, Apply):
@@ -286,12 +287,15 @@ class LLVMGenerator:
         else:
             raise TypeError(f"No function to be applied {node.raw_structure()}")
 
+        self.comment(f"Generating function application: {node}")
+
         # Generate argument
         arg_val, arg_type = self.generate(node.arg)
         self.comment(f"Generated Apply argument: {node.arg}")
 
         # Always allocate new closure state
-        state_ptr = self.builder.alloca(self.state_type, name="lambda_state")
+        if self.state_ptr is None:
+            self.state_ptr = self.builder.alloca(self.state_type, name=self.fresh_name("lambda_state"))
 
         # Load function value if needed
         if isinstance(func_val, (ir.GEPInstr, ir.AllocaInstr)):
@@ -302,10 +306,11 @@ class LLVMGenerator:
             func_ptr_type = func_val.type.pointee
             if isinstance(func_ptr_type, ir.FunctionType):
                 # Call the function to get next function pointer
-                next_func = self.builder.call(func_val, [state_ptr, arg_val])
+                next_func = self.builder.call(func_val, [self.state_ptr, arg_val])
                 return next_func, next_func.type
 
         raise TypeError(f"Expected function pointer, got {func_val.type}")
+
 
     def generate_let(self, node: Let) -> Tuple[ir.Value, ir.Type]:
         """
@@ -455,7 +460,8 @@ def main():
     #expr_str = "let id = λx.(x) in (id 8)"
     #expr_str = "let inc = λx.(x + 1) in (inc 4)"
     #expr_str = "let add = λx.λy.(x + y) in 3"
-    expr_str = "let add = λx.λy.(x + y) in ((add 6) 9)"
+    #expr_str = "let add = λx.λy.(x + y) in ((add 6) 9)"
+    expr_str = "let add = λx.λy.(x + y) in (add 6 9)"
 
     from mfl_ply_parser import parser as ply_parser
     ast = ply_parser.parse(expr_str)
