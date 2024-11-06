@@ -44,6 +44,9 @@ class LLVMGenerator:
         # Counter for generating unique names
         self.fresh_counter = 0
 
+        # Return type for curried functions
+        self.return_type = None
+
        # Current IR builder
         self.builder: Optional[ir.IRBuilder] = None
         
@@ -94,6 +97,10 @@ class LLVMGenerator:
         self.state_type.set_body(*[self.int_type] * lambda_state_size)  
         # Create pointer type to named struct
         self.state_ptr_type = ir.PointerType(self.state_type)
+        # State type for captured variables
+        #self.state_type = ir.LiteralStructType([self.int_type] * 8)  # Max 8 captured variables for now...
+        #self.state_ptr_type = self.state_type.as_pointer()
+        
         # Pointer to allocated lambda state struct
         self.state_ptr = None
 
@@ -167,118 +174,95 @@ class LLVMGenerator:
         Returns the function and its type.
         """
 
-        # Save current state
-        old_builder = self.builder
-        old_vars = self.variables.copy()
-        old_func = self.current_function
+        # Initialize state pointer if not already done
+        if self.state_ptr is None:
+            # Create state pointer at function entry
+            self.state_ptr = self.builder.alloca(self.state_type)
 
-        if isinstance(node.body, Function):
+        def curry_function(node: Function, idx: int) -> ir.Type:
 
-            # First create the inner function type that will be returned
-            inner_func_type = ir.FunctionType(self.int_type,
-                                    [self.state_ptr_type, self.int_type])
-            
-            # Create pointer to function type - this is what we'll return
-            inner_func_ptr_type = ir.PointerType(inner_func_type)
+            if idx == 0:
+                self.state_ptr = self.builder.alloca(self.state_type, name=self.fresh_name("lambda_state"))
 
-            # Create current function type that returns the function pointer
-            func_type = ir.FunctionType(inner_func_ptr_type,  # Return type is pointer to function
-                                            [self.state_ptr_type, self.int_type])
-            func_ret_type = func_type
-            # Create function
-            func_name = self.fresh_name("func")
-            func = ir.Function(self.module, func_type, name=func_name)
-
-            self.comment(f"Curried function({func_name}) with return type: {func_type}")
-
-            # Create entry block
-            block = func.append_basic_block(name="entry")
-            self.builder = ir.IRBuilder(block)
-            self.current_function = func
-            self.comment(f"Generating curried function({func_name}): {node}")
-
-            # Add parameters to scope
-            state_ptr, arg = func.args
-
-            # Store argument in closure state
-            idx = len(self.variables)
-            self.comment(f"gets pointer to field[{idx}] in the lambda state struct")
-            arg_ptr = self.builder.gep(state_ptr, 
-                                 [ir.Constant(self.int_type, 0),
-                                  ir.Constant(self.int_type, idx)])
-            self.comment(f'store argument(%"{arg.name}") in the lambda state struct')
-            self.builder.store(arg, arg_ptr)
-
-            # Add stored argument to variables
-            self.variables[node.arg.name] = (arg_ptr, self.int_type) #FIXME
-
-            # Generate next function in curry chain
-            next_func, next_func_type = self.generate(node.body)
-            self.comment(f"Return function pointer to inner function: {next_func.name}")
-
-            self.builder.ret(next_func)
-        else:
-            # Create innermost function
-
-            # Figure out the correct return type
+            # Figure out the correct arg and return type
             if isinstance(node.type, TyCon):
-                type_name = node.type.name
                 type_args = node.type.args
                 ret_type = type_args[0].find()
                 arg_type = type_args[1].find()
             else:
-                raise TypeError(f"Wrong function type: {node.type}")
+                raise TypeError(f"Wrong function type: {node.type}")   
             
-            # Set up function types
-            func_ret_type = self.int_type if ret_type.name == "int" else self.bool_type
-            func_arg_type = self.int_type if arg_type.name == "int" else self.bool_type
-            func_type = ir.FunctionType(func_ret_type, 
-                                        [self.state_ptr_type, func_arg_type])
+            if isinstance(node.body, Function):
+                # Add stored argument to variables: (variable.name, (idx, type))
+                self.variables[node.arg.name] = (idx, arg_type)
 
-            # Create function
-            func_name = self.fresh_name("comp")
-            func = ir.Function(self.module, func_type, name=func_name)
+                # Get inner function type recursively
+                inner_func , inner_func_type = curry_function(node.body, idx + 1)
+                inner_func_type_ptr = inner_func_type.as_pointer()
+
+                # Create lambda function
+                lambda_arg_type = self.int_type # FIXME if arg_type.name == "int" else self.bool_type
+                lambda_type = ir.FunctionType(inner_func_type_ptr, [self.state_ptr_type, lambda_arg_type])
+                lambda_func = ir.Function(self.module, lambda_type, name=self.fresh_name('lambda'))
+
+                # Create entry block
+                block = lambda_func.append_basic_block(name="entry")
+                builder = ir.IRBuilder(block)
+
+                # Get state pointer and argument from function params
+                state_ptr = lambda_func.args[0]  # state pointer
+                arg_val = lambda_func.args[1]    # argument value
+
+                # Store the captured argument in the lambda state
+                idx_ptr = builder.gep(state_ptr, [ir.Constant(self.int_type, 0), ir.Constant(self.int_type, idx)])
+                builder.store(arg_val, idx_ptr)
+
+                # Return next function in chain
+                builder.ret(inner_func)
+
+                return lambda_func, lambda_type
+            else:
+                # This is the innermost function that does the computation
+                # Figure out the correct return type
+                if isinstance(node.type, TyCon):
+                    type_args = node.type.args
+                    ret_type = type_args[0].find()
+                    arg_type = type_args[1].find()
+                else:
+                    raise TypeError(f"Wrong function type: {node.type}")    
+                      
+                # Set up function types
+                comp_ret_type = self.int_type if ret_type.name == "int" else self.bool_type
+                comp_arg_type = self.int_type if arg_type.name == "int" else self.bool_type
+                comp_type = ir.FunctionType(comp_ret_type, [self.state_ptr_type, comp_arg_type])
+
+                # Create compute function
+                comp_name = self.fresh_name("compute")
+                compute = ir.Function(self.module, comp_type, name=comp_name)
+                block = compute.append_basic_block(name="entry")
+                builder = ir.IRBuilder(block)
+
+                # Store the (variable.name, (idx, type)) in a dict
+                self.variables[node.arg.name] = (idx, arg_type)
+
+                # Fill in the captured variable values with the pointers to the lambda state
+                for key in self.variables.keys():
+                    (val_idx, val_arg_type) = self.variables[key]
+                    arg_ptr = builder.gep(self.state_ptr, [ir.Constant(self.int_type, 0), ir.Constant(self.int_type, val_idx)])
+                    self.variables[key] = (arg_ptr, val_arg_type) 
+
+                # Generate body computation
+                result, _result_type = self.generate(node.body)
         
-            self.comment(f"Innermost Function({func_name}) with return type: {func_type}")
+                # Return result
+                self.builder.ret(result)
+                self.comment(f"Generated final function({comp_name}): {node}")
+                return compute, comp_ret_type
 
-            # Set up entry block
-            block = func.append_basic_block(name="entry")
-            self.builder = ir.IRBuilder(block)
-            self.current_function = func
-            self.comment(f"Generating innermost function({func.name}): {node}")
+        curry_func, curry_return_type = curry_function(node, 0)
+        self.debug(f"curr_func: {curry_func}, curr_return_type: {curry_return_type}")
 
-            # Get function parameters
-            state_ptr, arg = func.args
-
-            # Store argument with proper type
-            idx = len(self.variables)
-            self.comment(f"gets pointer to field[{idx}] in the lambda state struct")
-            arg_ptr = self.builder.gep(state_ptr,
-                                    [ir.Constant(self.int_type, 0),
-                                    ir.Constant(self.int_type, idx)])
-            self.comment(f'store argument(%"{arg.name}") in the lambda state struct')
-            self.builder.store(arg, arg_ptr)
-            self.variables[node.arg.name] = (arg_ptr, self.int_type) # FIXME unnecessary overwritten below
-
-            for idx, key in enumerate(self.variables.keys()):
-                ptr = self.builder.gep(state_ptr,
-                                    [ir.Constant(self.int_type, 0),
-                                    ir.Constant(self.int_type, idx)])
-                self.variables[key] = (ptr, func_arg_type)  # FIXME the type should be the type of the variable
-
-            # Generate body computation
-            result, _result_type = self.generate(node.body)
-        
-            # Return result
-            self.builder.ret(result)
-            self.comment(f"Generated final function({func_name}): {node}")
-
-        # Restore state
-        self.builder = old_builder
-        self.variables = old_vars
-        self.current_function = old_func
-
-        return func, func_ret_type
+        return curry_func, curry_return_type
 
     # ----------------------------------------------------------------
     # APPLY(func, arg)
@@ -352,7 +336,9 @@ class LLVMGenerator:
             self.variables[node.name.name] = (alloca, val_type)
 
         # Generate body
-        result, result_type = self.generate(node.body)
+        baja = self.generate(node.body)
+        self.debug(f"Generated Let body: '{node.body}' , return type: {baja}")
+        result, result_type = baja # self.generate(node.body)
 
         self.comment(f"Generated Let body: '{node.body}' , return type: {result_type}")
 
