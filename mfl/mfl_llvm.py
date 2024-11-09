@@ -15,6 +15,8 @@ from mfl_ast import (
 from mfl_type_checker import (
     TyVar, TyCon
 )
+import subprocess
+import shlex  # For safe shell command construction
 
 #import builtins
 #import inspect
@@ -71,10 +73,10 @@ class LLVMGenerator:
 
        # Current IR builder
         self.builder: Optional[ir.IRBuilder] = None
-        
+
         # Track current function being generated
         self.current_function: Optional[ir.Function] = None
-        
+
         # Symbol table for variables
         self.variables: Dict[str, Tuple[ir.Value, ir.Type]] = {}
         self.symbol_table = SymbolTable()
@@ -82,7 +84,7 @@ class LLVMGenerator:
         # Create module to hold IR code
         self.module = ir.Module(name="MFL Generated Module")
         self.module.triple = llvm.get_default_triple()
-        
+
         # Basic types we'll use
         self.int_type = ir.IntType(32)
         self.bool_type = ir.IntType(1)
@@ -91,7 +93,7 @@ class LLVMGenerator:
         # Declare the printf function
         self.printf_ty = ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))], var_arg=True)
         self.printf = ir.Function(self.module, self.printf_ty, name="printf")
-       
+
         # Define some useful string constants
         self.str_int = ir.GlobalVariable(self.module, ir.ArrayType(ir.IntType(8), 3), name=".str.int")
         self.str_int.linkage = 'private'
@@ -127,15 +129,10 @@ class LLVMGenerator:
         # Pointer to allocated lambda state struct
         self.state_ptr = None
 
-    def get_llvm_type(self, node_type):
-        """Maps AST types to LLVM types."""
-        print(f"get_llvm_type: {node_type} typt is: {type(node_type)}")
-        if isinstance(node_type, ir.IntType):
-            return ir.IntType(32)
-        elif node_type == "bool":
-            return ir.IntType(1)
-        else:
-            raise Exception(f"Unsupported type: {node_type}")
+    def dispose(self):
+        self.module = None  # Release the module
+        self.builder = None # Release the builder
+        #Any other cleanup for LLVM related stuff should go here
 
     def debug(self, msg: str) -> None:
         """Print debug message if verbose mode is enabled"""
@@ -401,7 +398,8 @@ class LLVMGenerator:
             # Call the printf function with the format string and the loaded result
             self.builder.call(self.printf, [str_ptr, body_ir])
 
-            self.builder.ret(body_ir)
+            #self.builder.ret(body_ir)
+            self.builder.ret(ir.Constant(ir.IntType(32), 0))
 
         self.symbol_table.pop_scope()
 
@@ -481,15 +479,33 @@ class LLVMGenerator:
         else:
             raise ValueError(f"Unknown operator: {node.op}")
 
+
+def clang(output = "foo", ll_file = "mfl.ll"):
+    """Compiles the generated LLVM IR to an executable file"""
+    try:
+        # Use shlex.quote to safely handle filenames with spaces or special characters
+        command = shlex.split(f"clang -O3 -o {output} {shlex.quote(ll_file)}")
+        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        print("Compilation successful!")
+        print(result.stdout)  # Print compilation output (if any)
+    except subprocess.CalledProcessError as e:
+        print(f"Error compiling with clang: {e}")
+        print(f"Return code: {e.returncode}")
+        print(f"Stdout: {e.stdout}")
+        print(f"Stderr: {e.stderr}")
+    except FileNotFoundError:
+        print("Error: clang command not found. Make sure it's in your PATH.")
+
 # Main is used for testing and debugging
 def main():
     """Test the LLVM generator with a simple curried function"""
     # Create AST for: let add = λx.λy.λz.(x + y + z) in ((add 1) 2) 3
     #expr_str = "let add = λx.λy.λz.(x + y + z) in ((add 1) 2) 3"
     #expr_str = "let add = 3 + 4 in add"
+    expr_str = "let result = 3 + 4 in result"
     #expr_str = "let id = λx.(x) in (id 8)"
     #expr_str = "let inc = λx.(x + 1) in (inc 4)"
-    expr_str = "let one = 1 in one"
+    #expr_str = "let one = 1 in one"
     #expr_str = "let add = λx.λy.(x + y) in 3"
     #expr_str = "let add = λx.λy.(x + y) in ((add 6) 9)"
     #expr_str = "let add = λx.λy.(x + y) in (add 6 9)"
@@ -527,6 +543,7 @@ def main():
         f.write(llvm_ir)
     print(f"Generated LLVM IR code written to: {ll_file}")
     print(f"Compile as: clang -O3 -o foo {ll_file}")
+    clang(output="foo", ll_file=ll_file)
 
 
 if __name__ == "__main__":
