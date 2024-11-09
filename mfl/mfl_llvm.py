@@ -31,6 +31,28 @@ llvm.initialize()
 llvm.initialize_native_target()
 llvm.initialize_native_asmprinter()
 
+class SymbolTable:
+    def __init__(self):
+        self.scopes = [{}]  # Start with the global scope
+
+    def push_scope(self):
+        self.scopes.append({})
+
+    def pop_scope(self):
+        if len(self.scopes) > 1:
+            self.scopes.pop()
+        else:
+            raise Exception("Cannot pop global scope")
+
+    def add_variable(self, name, type, address):
+        self.scopes[-1][name] = (type, address)
+
+    def lookup_variable(self, name):
+        for scope in reversed(self.scopes):  # Search from inner to outer scopes
+            if name in scope:
+                return scope[name]
+        return None
+
 class LLVMGenerator:
     """
     Generates LLVM IR code from AST nodes.
@@ -55,6 +77,7 @@ class LLVMGenerator:
         
         # Symbol table for variables
         self.variables: Dict[str, Tuple[ir.Value, ir.Type]] = {}
+        self.symbol_table = SymbolTable()
 
         # Create module to hold IR code
         self.module = ir.Module(name="MFL Generated Module")
@@ -89,7 +112,7 @@ class LLVMGenerator:
         self.str_false.linkage = 'private'
         self.str_false.global_constant = True
         self.str_false.initializer = ir.Constant(ir.ArrayType(ir.IntType(8), 6), bytearray(b"false\00"))
-        
+
         # Setup the lambda closure state (holds captured variables)
         # Create named struct type
         self.state_type = ir.global_context.get_identified_type("lambda_state")
@@ -100,9 +123,19 @@ class LLVMGenerator:
         # State type for captured variables
         #self.state_type = ir.LiteralStructType([self.int_type] * 8)  # Max 8 captured variables for now...
         #self.state_ptr_type = self.state_type.as_pointer()
-        
+
         # Pointer to allocated lambda state struct
         self.state_ptr = None
+
+    def get_llvm_type(self, node_type):
+        """Maps AST types to LLVM types."""
+        print(f"get_llvm_type: {node_type} typt is: {type(node_type)}")
+        if isinstance(node_type, ir.IntType):
+            return ir.IntType(32)
+        elif node_type == "bool":
+            return ir.IntType(1)
+        else:
+            raise Exception(f"Unsupported type: {node_type}")
 
     def debug(self, msg: str) -> None:
         """Print debug message if verbose mode is enabled"""
@@ -190,8 +223,8 @@ class LLVMGenerator:
                 ret_type = type_args[0].find()
                 arg_type = type_args[1].find()
             else:
-                raise TypeError(f"Wrong function type: {node.type}")   
-            
+                raise TypeError(f"Wrong function type: {node.type}")
+
             if isinstance(node.body, Function):
                 # Add stored argument to variables: (variable.name, (idx, type))
                 self.variables[node.arg.name] = (idx, arg_type)
@@ -229,8 +262,8 @@ class LLVMGenerator:
                     ret_type = type_args[0].find()
                     arg_type = type_args[1].find()
                 else:
-                    raise TypeError(f"Wrong function type: {node.type}")    
-                      
+                    raise TypeError(f"Wrong function type: {node.type}")
+
                 # Set up function types
                 comp_ret_type = self.int_type if ret_type.name == "int" else self.bool_type
                 comp_arg_type = self.int_type if arg_type.name == "int" else self.bool_type
@@ -253,14 +286,14 @@ class LLVMGenerator:
 
                 # Generate body computation
                 result, _result_type = self.generate(node.body)
-        
+                self.debug(f"Generated body({comp_name}): {node.body} -> {result}")
+
                 # Return result
                 self.builder.ret(result)
                 self.comment(f"Generated final function({comp_name}): {node}")
                 return compute, comp_ret_type
 
         curry_func, curry_return_type = curry_function(node, 0)
-        self.debug(f"curr_func: {curry_func}, curr_return_type: {curry_return_type}")
 
         return curry_func, curry_return_type
 
@@ -287,7 +320,7 @@ class LLVMGenerator:
             raise TypeError(f"No function to be applied {node.raw_structure()}")
 
         self.comment(f"Generating function application: {node}")
-        self.debug(f"Generating function application: {node}")
+        self.debug(f"Generating function application: {node.raw_structure()} , function type: {func_type}")
 
         # Generate argument
         arg_val, arg_type = self.generate(node.arg)
@@ -307,9 +340,14 @@ class LLVMGenerator:
             if isinstance(func_ptr_type, ir.FunctionType):
                 # Call the function to get next function pointer
                 next_func = self.builder.call(func_val, [self.state_ptr, arg_val])
+                self.debug(f"Generated Apply next function type: {next_func.type}")
                 return next_func, next_func.type
+            else:
+                # This is the final computation function
+                result = self.builder.call(func_val, [self.state_ptr, arg_val])
+                return result, result.type
         else:
-            return func_val, func_val.type
+            return func_val, func_type
 
 
     # ----------------------------------------------------------------
@@ -320,58 +358,67 @@ class LLVMGenerator:
         Generate let binding.
         Returns the body value and type.
         """
-        # Generate value
-        val, val_type = self.generate(node.value)
+        self.symbol_table.push_scope()
 
-        self.comment(f"Generated Let value: '{node.value}' ,return type: {val_type}")
+        # Generate value
+        value_ir, _val_type = self.generate(node.value)
+
+        self.debug(f"--- Generated Let value: '{node.value.raw_structure()}' ,return type: {value_ir.type}")
+        self.debug(f"{value_ir}")
+        self.debug(f"---")
+
+        self.comment(f"Generated Let value: '{node.value}' ,return type: {value_ir.type}")
 
         # For function values, store directly in variables
-        if isinstance(val, ir.Function) or (isinstance(val_type, ir.PointerType) and 
-                                          isinstance(val_type.pointee, ir.FunctionType)):
-            self.variables[node.name.name] = (val, val_type)
+        if isinstance(value_ir, ir.Function) or (isinstance(value_ir.type, ir.PointerType) and 
+                                          isinstance(value_ir.type.pointee, ir.FunctionType)):
+            self.variables[node.name.name] = (value_ir, value_ir.type)
+            self.symbol_table.add_variable(node.name.name, value_ir.type, value_ir)
         else:
             # For non-function values, store in an alloca
-            alloca = self.builder.alloca(val_type)
-            self.builder.store(val, alloca)
-            self.variables[node.name.name] = (alloca, val_type)
+            alloca_ir = self.builder.alloca(value_ir.type)
+            self.builder.store(value_ir, alloca_ir)
+            self.variables[node.name.name] = (alloca_ir, value_ir.type)
+            self.symbol_table.add_variable(node.name.name, value_ir.type, alloca_ir)
 
         # Generate body
-        baja = self.generate(node.body)
-        self.debug(f"Generated Let body: '{node.body}' , return type: {baja}")
-        result, result_type = baja # self.generate(node.body)
-
-        self.comment(f"Generated Let body: '{node.body}' , return type: {result_type}")
+        body_ir = self.generate(node.body)
+        self.debug(f"Generated Let body: result.type: {body_ir.type}")
+        self.comment(f"Generated Let body: '{node.body}' , return type: {body_ir.type}")
 
         # Add return if we're in the main function
         if self.current_function.name == "main":
             # Load the value from the result pointer
             #loaded_result = self.builder.load(result, name="final_result")
-    
+
             # Get a pointer to the format string
-            str_ptr = self.builder.gep(self.str_int, [ir.Constant(ir.IntType(64), 0), ir.Constant(ir.IntType(64), 0)], inbounds=True, name="str_ptr")
-    
+            str_ptr = self.builder.gep(self.str_int,
+                                       [ir.Constant(ir.IntType(64), 0),
+                                        ir.Constant(ir.IntType(64), 0)],
+                                       inbounds=True,
+                                       name="str_ptr")
+
             # Call the printf function with the format string and the loaded result
-            self.builder.call(self.printf, [str_ptr, result])
+            self.builder.call(self.printf, [str_ptr, body_ir])
 
-            self.builder.ret(result)
+            self.builder.ret(body_ir)
 
-        return result, result_type
+        self.symbol_table.pop_scope()
+
+        return body_ir
 
     # ----------------------------------------------------------------
     # VAR(x)
     # ----------------------------------------------------------------
     def generate_var(self, node: Var) -> Tuple[ir.Value, ir.Type]:
         """Generate LLVM IR for variable reference"""
-        if node.name in self.variables:
-            var_val, var_type = self.variables[node.name]
-            if not self.builder:
-                raise ValueError("No active IR builder")
-            
-            # Return the variable value directly
-            return var_val, var_type
-            
-        raise ValueError(f"Undefined variable: {node.name}")
-    
+        var_entry= self.symbol_table.lookup_variable(node.name)
+        if var_entry is None:
+            raise Exception(f"Undeclared variable: {node.name}")
+        (_type, address) = var_entry
+        return self.builder.load(address)
+
+
     # ----------------------------------------------------------------
     # BINOP(op, left, right)
     # ----------------------------------------------------------------
@@ -386,6 +433,7 @@ class LLVMGenerator:
 
         lval = left_val
         rval = right_val
+        self.debug(f"Generated binary operation: lval={lval}, rval={rval}")
 
         # Load values if they are pointers
         if isinstance(left_val.type, ir.PointerType):
@@ -421,10 +469,10 @@ class LLVMGenerator:
         Returns the result value and type.
         """
         self.debug(f"Generating unary operation: {node.op}")
-        
+
         # Generate operand
         val, ty = self.generate(node.operand)
-        
+
         # Generate operation
         if node.op == '-':
             return self.builder.neg(val), self.int_type
@@ -437,10 +485,11 @@ class LLVMGenerator:
 def main():
     """Test the LLVM generator with a simple curried function"""
     # Create AST for: let add = λx.λy.λz.(x + y + z) in ((add 1) 2) 3
-    expr_str = "let add = λx.λy.λz.(x + y + z) in ((add 1) 2) 3"
+    #expr_str = "let add = λx.λy.λz.(x + y + z) in ((add 1) 2) 3"
     #expr_str = "let add = 3 + 4 in add"
     #expr_str = "let id = λx.(x) in (id 8)"
     #expr_str = "let inc = λx.(x + 1) in (inc 4)"
+    expr_str = "let one = 1 in one"
     #expr_str = "let add = λx.λy.(x + y) in 3"
     #expr_str = "let add = λx.λy.(x + y) in ((add 6) 9)"
     #expr_str = "let add = λx.λy.(x + y) in (add 6 9)"
@@ -455,12 +504,11 @@ def main():
     # This will annotate the AST with types!
     infer_j(ast, type_ctx)
 
+    print(f"AST(raw): '{ast.raw_structure()}'")
+
     # Generate code
     generator = LLVMGenerator(verbose=True, generate_comments=True)
-    result, rt = generator.generate(ast)
-
-    print(f"Generated LLVM IR for: '{ast}'")
-    print(f"AST(typed): '{ast.typed_structure()}'")
+    result= generator.generate(ast)
 
     # Verify module
     llvm_ir = str(generator.module)
@@ -479,7 +527,7 @@ def main():
         f.write(llvm_ir)
     print(f"Generated LLVM IR code written to: {ll_file}")
     print(f"Compile as: clang -O3 -o foo {ll_file}")
-    
+
 
 if __name__ == "__main__":
     main()

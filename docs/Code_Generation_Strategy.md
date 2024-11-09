@@ -64,6 +64,24 @@ This detailed explanation shows how a simple `Let` expression translates to mult
 
 ## Symbol Table
 
+You push and pop scopes in your symbol table whenever you enter and exit a new lexical scope in your source code. Lexical scope refers to the region of code where a variable is visible. Here's a breakdown of when to use push_scope() and pop_scope() within a compiler's AST traversal:
+
+`push_scope():`
+
+* `Function Definitions:` When your AST traversal encounters a function definition, you should immediately call push_scope(). This creates a new scope for the function's local variables and parameters. Any variables declared within the function will be added to this new scope.
+
+* `Block Statements (e.g., if, else, while, for):` Similarly, when you encounter a block statement (a sequence of statements enclosed in curly braces {} in many languages), push a new scope. Variables declared within the block are only visible inside the block.
+
+* `let or var declarations (in languages with block scope):` If the language's let or var declarations create a new scope, you would push_scope() before processing the declaration and pop_scope() after. In some languages, this is implicit and handled by the block structure itself.
+
+`pop_scope():`
+
+* `End of Function Definitions:` After completing the traversal of a function's body (all statements within the function), call pop_scope(). This discards the function's local scope, returning to the enclosing scope.
+
+* `End of Block Statements:` After processing all the statements within a block, call pop_scope() to remove the block's scope from the symbol table.
+
+* `Exception Handling Blocks:` If your language has try...catch blocks, you'd generally push a scope at the start of the try and pop it at the end of the catch (or finally if present). This ensures that any variables declared within the exception handling blocks are only accessible within those blocks.
+
 ```python
 class SymbolTable:
     def __init__(self):
