@@ -2,6 +2,7 @@ import unittest
 import subprocess
 import os
 import sys
+import gc
 from llvmlite import binding as llvm
 import shlex  # For safe shell command construction
 
@@ -24,13 +25,10 @@ class TestMFLCompilation(unittest.TestCase):
         # Create a temporary directory for compilation
         self.temp_dir = "temp_test_dir"
         os.makedirs(self.temp_dir, exist_ok=True)
-        self.generator = LLVMGenerator(verbose=False, generate_comments=True)
+        
 
 
     def tearDown(self):
-        # Explicitly dispose of LLVM resources
-        self.generator.dispose()
-        self.generator = None
         # Clean up the temporary directory after each test
         import shutil
         shutil.rmtree(self.temp_dir)
@@ -41,8 +39,16 @@ class TestMFLCompilation(unittest.TestCase):
         type_ctx = {}
         infer_j(ast, type_ctx)
 
-        result = self.generator.generate(ast)
-        llvm_ir = str(self.generator.module)
+        generator = LLVMGenerator(verbose=False, generate_comments=True)
+        result = generator.generate(ast)
+        llvm_ir = str(generator.module)
+
+        # Explicitly dispose of LLVM resources
+        generator.dispose()
+        del generator
+
+        # Trigger garbage collection
+        gc.collect()
 
         try:
             llvm.parse_assembly(llvm_ir)
