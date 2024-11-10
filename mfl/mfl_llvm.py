@@ -55,6 +55,15 @@ class SymbolTable:
                 return scope[name]
         return None
 
+    def __str__(self):
+        output = "Symbol Table:\n"
+        for i, scope in enumerate(self.scopes):
+            output += f"Scope {i}:\n"
+            for name, (type, address) in scope.items():
+                output += f"  {name}: Type={type}, Address={address}\n"
+            output += "\n"  # Empty line between scopes
+        return output.rstrip()  # Remove trailing newline
+
 class LLVMGenerator:
     """
     Generates LLVM IR code from AST nodes.
@@ -78,7 +87,6 @@ class LLVMGenerator:
         self.current_function: Optional[ir.Function] = None
 
         # Symbol table for variables
-        self.variables: Dict[str, Tuple[ir.Value, ir.Type]] = {}
         self.symbol_table = SymbolTable()
 
         # Create module to hold IR code
@@ -174,10 +182,10 @@ class LLVMGenerator:
             self.current_function = main_func
 
         if isinstance(node, Int):
-            return ir.Constant(self.int_type, node.value), self.int_type
+            return ir.Constant(self.int_type, node.value)
 
         elif isinstance(node, Bool):
-            return ir.Constant(self.bool_type, 1 if node.value else 0), self.bool_type
+            return ir.Constant(self.bool_type, 1 if node.value else 0)
 
         elif isinstance(node, Var):
             return self.generate_var(node)
@@ -208,22 +216,26 @@ class LLVMGenerator:
         Generate a curried function.
         Returns the function and its type.
         """
+        # Push a new scope to the symbol table
+        self.symbol_table.push_scope()
+
+        # Save the current builder
+        old_builder = self.builder
 
         # Initialize state pointer if not already done
         if self.state_ptr is None:
             # Create state pointer at function entry
             self.state_ptr = self.builder.alloca(self.state_type)
 
-        def curry_function(node: Function, idx: int) -> ir.Type:
+        def curry_function(node: Function, idx: int, capvars: Dict[str, Tuple[int, ir.Type]]) -> ir.Type:
             """
             In standard lambda calculus, it's not possible to have a Function node with
             another Function node as its body without it being equivalent to a curried
             function....I think... 
             """
-            self.symbol_table.push_scope()
-
-            FIXME we should handle the idx counter here with dict separate from the symbol table !?
-
+            # Allocate state pointer
+            # FIXME should we push the state_ptr to the symbol table here so that we can
+            #       define multiple lambdas in the future?
             if idx == 0:
                 self.state_ptr = self.builder.alloca(self.state_type, name=self.fresh_name("lambda_state"))
 
@@ -236,11 +248,11 @@ class LLVMGenerator:
                 raise TypeError(f"Wrong function type: {node.type}")
 
             if isinstance(node.body, Function):
-                # Add captured argument to symbol table
-                self.symbol_table.add_variable(node.arg.name, arg_type, idx)
-
+                # Add captured argument to local dict
+                capvars[node.arg.name] = (idx, arg_type)
+                print(f"Captured {node.arg.name} at index {idx} with type {arg_type}")
                 # Get inner function type recursively
-                inner_func , inner_func_type = curry_function(node.body, idx + 1)
+                inner_func , inner_func_type = curry_function(node.body, idx + 1, capvars.copy())
                 inner_func_type_ptr = inner_func_type.as_pointer()
 
                 # Create lambda function
@@ -250,21 +262,20 @@ class LLVMGenerator:
 
                 # Create entry block
                 block = lambda_func.append_basic_block(name="entry")
-                builder = ir.IRBuilder(block)
+                self.builder = ir.IRBuilder(block)
 
                 # Get state pointer and argument from function params
                 state_ptr = lambda_func.args[0]  # state pointer
                 arg_val = lambda_func.args[1]    # argument value
 
                 # Store the captured argument in the lambda state
-                idx_ptr = builder.gep(state_ptr, [ir.Constant(self.int_type, 0), ir.Constant(self.int_type, idx)])
-                builder.store(arg_val, idx_ptr)
+                idx_ptr = self.builder.gep(state_ptr, [ir.Constant(self.int_type, 0), ir.Constant(self.int_type, idx)])
+                self.builder.store(arg_val, idx_ptr)
 
                 # Return next function in chain
-                builder.ret(inner_func)
+                self.builder.ret(inner_func)
 
-                self.symbol_table.pop_scope()
-                return lambda_func, lambda_type
+                return lambda_func
             else:
                 # This is the innermost function that does the computation
                 # Figure out the correct return type
@@ -284,31 +295,47 @@ class LLVMGenerator:
                 comp_name = self.fresh_name("compute")
                 compute = ir.Function(self.module, comp_type, name=comp_name)
                 block = compute.append_basic_block(name="entry")
-                builder = ir.IRBuilder(block)
+                self.builder = ir.IRBuilder(block)
+
+                # Get state pointer and argument from function params
+                state_ptr = compute.args[0]  # state pointer
+                arg_val = compute.args[1]    # argument value
+
+                # Store the captured argument in the lambda state
+                idx_ptr = self.builder.gep(state_ptr, [ir.Constant(self.int_type, 0), ir.Constant(self.int_type, idx)])
+                self.builder.store(arg_val, idx_ptr)
 
                 # Store the (variable.name, (idx, type)) in a dict
-                self.variables[node.arg.name] = (idx, arg_type)
+                capvars[node.arg.name] = (idx, arg_type)
 
                 # Fill in the captured variable values with the pointers to the lambda state
-                for key in self.variables.keys():
-                    (val_idx, val_arg_type) = self.variables[key]
-                    arg_ptr = builder.gep(self.state_ptr, [ir.Constant(self.int_type, 0), ir.Constant(self.int_type, val_idx)])
-                    self.variables[key] = (arg_ptr, val_arg_type) 
+                for key in capvars.keys():
+                    (val_idx, val_arg_type) = capvars[key]
+                    arg_ptr = self.builder.gep(state_ptr, [ir.Constant(self.int_type, 0), ir.Constant(self.int_type, val_idx)])
+                    self.symbol_table.add_variable(key, val_arg_type, arg_ptr) 
+
+                print(f"Capvars: {capvars}")
+                self.debug(f"Symbol table:\n{self.symbol_table}")
 
                 # Generate body computation
-                result, _result_type = self.generate(node.body)
+                result = self.generate(node.body)
                 self.debug(f"Generated body({comp_name}): {node.body} -> {result}")
 
                 # Return result
                 self.builder.ret(result)
                 self.comment(f"Generated final function({comp_name}): {node}")
 
-                self.symbol_table.pop_scope()
-                return compute, comp_ret_type
+                return compute
 
-        curry_func, curry_return_type = curry_function(node, 0)
+        curry_func = curry_function(node, 0, {})
 
-        return curry_func, curry_return_type
+        # Restore the old builder
+        self.builder = old_builder
+
+        # Pop the scope from the symbol table
+        self.symbol_table.pop_scope()
+
+        return curry_func
 
     # ----------------------------------------------------------------
     # APPLY(func, arg)
@@ -323,22 +350,21 @@ class LLVMGenerator:
         # Process function value, handling nested applications
         if isinstance(node.func, Apply):
             # Recursively process inner application first
-            func_val, func_type = self.generate_apply(node.func)
+            func_val = self.generate_apply(node.func)
         elif isinstance(node.func, Var):
             # Look up function from variables
             if self.symbol_table.lookup_variable(node.func.name) is None:
                 raise NameError(f"Undefined function: {node.func.name}")
             else:
-                (type, address) = self.symbol_table.lookup_variable(node.func.name)
-                #func_val, func_type = self.variables[node.func.name]
+                (type, func_val) = self.symbol_table.lookup_variable(node.func.name)
         else:
             raise TypeError(f"No function to be applied {node.raw_structure()}")
 
         self.comment(f"Generating function application: {node}")
-        self.debug(f"Generating function application: {node.raw_structure()} , function type: {func_type}")
+        self.debug(f"Generating function application: {node.raw_structure()}")
 
         # Generate argument
-        arg_val, arg_type = self.generate(node.arg)
+        arg_val = self.generate(node.arg)
         self.comment(f"Generated Apply argument: {node.arg}")
 
         # Always allocate new closure state
@@ -346,23 +372,28 @@ class LLVMGenerator:
             self.state_ptr = self.builder.alloca(self.state_type, name=self.fresh_name("lambda_state"))
 
         # Load function value if needed
-        if isinstance(func_val, (ir.GEPInstr, ir.AllocaInstr)):
-            func_val = self.builder.load(func_val)
+        #if isinstance(func_val, (ir.GEPInstr, ir.AllocaInstr)):
+        #    func_val = self.builder.load(func_val)
+
+        print(f"Function value: {func_val}")
 
         # Get function type
         if isinstance(func_val.type, ir.PointerType):
             func_ptr_type = func_val.type.pointee
             if isinstance(func_ptr_type, ir.FunctionType):
                 # Call the function to get next function pointer
+                print(f"Calling function with state_ptr: {self.state_ptr}, arg_val: {arg_val}")
                 next_func = self.builder.call(func_val, [self.state_ptr, arg_val])
                 self.debug(f"Generated Apply next function type: {next_func.type}")
-                return next_func, next_func.type
+                return next_func
             else:
                 # This is the final computation function
+                print(f"Calling final computation function")
                 result = self.builder.call(func_val, [self.state_ptr, arg_val])
-                return result, result.type
+                return result
         else:
-            return func_val, func_type
+            print(f"func_val is not a pointer type: {func_val.type}")
+            return func_val
 
 
     # ----------------------------------------------------------------
@@ -376,7 +407,7 @@ class LLVMGenerator:
         self.symbol_table.push_scope()
 
         # Generate value
-        value_ir, _val_type = self.generate(node.value)
+        value_ir = self.generate(node.value)
 
         self.debug(f"--- Generated Let value: '{node.value.raw_structure()}' ,return type: {value_ir.type}")
         self.debug(f"{value_ir}")
@@ -387,14 +418,14 @@ class LLVMGenerator:
         # For function values, store directly in variables
         if isinstance(value_ir, ir.Function) or (isinstance(value_ir.type, ir.PointerType) and 
                                           isinstance(value_ir.type.pointee, ir.FunctionType)):
-            self.variables[node.name.name] = (value_ir, value_ir.type)
             self.symbol_table.add_variable(node.name.name, value_ir.type, value_ir)
         else:
             # For non-function values, store in an alloca
             alloca_ir = self.builder.alloca(value_ir.type)
             self.builder.store(value_ir, alloca_ir)
-            self.variables[node.name.name] = (alloca_ir, value_ir.type)
             self.symbol_table.add_variable(node.name.name, value_ir.type, alloca_ir)
+
+        self.debug(f"Let - Symbol table:\n{self.symbol_table}")
 
         # Generate body
         body_ir = self.generate(node.body)
@@ -417,7 +448,11 @@ class LLVMGenerator:
             self.builder.call(self.printf, [str_ptr, body_ir])
 
             #self.builder.ret(body_ir)
-            self.builder.ret(ir.Constant(ir.IntType(32), 0))
+            # Check if the current block is already terminated
+            if not self.builder.block.is_terminated:
+                self.builder.ret(ir.Constant(ir.IntType(32), 0))
+            else:
+                print(f"Warning: Block already terminated when processing let expression for {node}")
 
         self.symbol_table.pop_scope()
 
@@ -444,8 +479,8 @@ class LLVMGenerator:
         Returns the result value and type.
         """
         # Generate operands
-        left_val, left_type = self.generate(node.left)
-        right_val, right_type = self.generate(node.right)
+        left_val = self.generate(node.left)
+        right_val = self.generate(node.right)
 
         lval = left_val
         rval = right_val
@@ -459,19 +494,19 @@ class LLVMGenerator:
 
         # Generate operation
         if node.op == '+':
-            return self.builder.add(lval, rval), self.int_type
+            return self.builder.add(lval, rval)
         elif node.op == '-':
-            return self.builder.sub(lval, rval), self.int_type
+            return self.builder.sub(lval, rval)
         elif node.op == '*':
-            return self.builder.mul(lval, rval), self.int_type
+            return self.builder.mul(lval, rval)
         elif node.op == '/':
-            return self.builder.sdiv(lval, rval), self.int_type
+            return self.builder.sdiv(lval, rval)
         elif node.op == '==':
-            return self.builder.icmp_signed('==', left_val, right_val), self.bool_type
+            return self.builder.icmp_signed('==', left_val, right_val)
         elif node.op == '<':
-            return self.builder.icmp_signed('<', left_val, right_val), self.bool_type
+            return self.builder.icmp_signed('<', left_val, right_val)
         elif node.op == '>':
-            return self.builder.icmp_signed('>', left_val, right_val), self.bool_type
+            return self.builder.icmp_signed('>', left_val, right_val)
         else:
             raise ValueError(f"Unknown operator: {node.op}")
 
@@ -487,13 +522,13 @@ class LLVMGenerator:
         self.debug(f"Generating unary operation: {node.op}")
 
         # Generate operand
-        val, ty = self.generate(node.operand)
+        val = self.generate(node.operand)
 
         # Generate operation
         if node.op == '-':
-            return self.builder.neg(val), self.int_type
+            return self.builder.neg(val)
         elif node.op == '!':
-            return self.builder.not_(val), self.bool_type
+            return self.builder.not_(val)
         else:
             raise ValueError(f"Unknown operator: {node.op}")
 
