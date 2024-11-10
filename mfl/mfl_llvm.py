@@ -215,6 +215,14 @@ class LLVMGenerator:
             self.state_ptr = self.builder.alloca(self.state_type)
 
         def curry_function(node: Function, idx: int) -> ir.Type:
+            """
+            In standard lambda calculus, it's not possible to have a Function node with
+            another Function node as its body without it being equivalent to a curried
+            function....I think... 
+            """
+            self.symbol_table.push_scope()
+
+            FIXME we should handle the idx counter here with dict separate from the symbol table !?
 
             if idx == 0:
                 self.state_ptr = self.builder.alloca(self.state_type, name=self.fresh_name("lambda_state"))
@@ -228,8 +236,8 @@ class LLVMGenerator:
                 raise TypeError(f"Wrong function type: {node.type}")
 
             if isinstance(node.body, Function):
-                # Add stored argument to variables: (variable.name, (idx, type))
-                self.variables[node.arg.name] = (idx, arg_type)
+                # Add captured argument to symbol table
+                self.symbol_table.add_variable(node.arg.name, arg_type, idx)
 
                 # Get inner function type recursively
                 inner_func , inner_func_type = curry_function(node.body, idx + 1)
@@ -255,6 +263,7 @@ class LLVMGenerator:
                 # Return next function in chain
                 builder.ret(inner_func)
 
+                self.symbol_table.pop_scope()
                 return lambda_func, lambda_type
             else:
                 # This is the innermost function that does the computation
@@ -293,6 +302,8 @@ class LLVMGenerator:
                 # Return result
                 self.builder.ret(result)
                 self.comment(f"Generated final function({comp_name}): {node}")
+
+                self.symbol_table.pop_scope()
                 return compute, comp_ret_type
 
         curry_func, curry_return_type = curry_function(node, 0)
@@ -315,9 +326,11 @@ class LLVMGenerator:
             func_val, func_type = self.generate_apply(node.func)
         elif isinstance(node.func, Var):
             # Look up function from variables
-            if node.func.name not in self.variables:
+            if self.symbol_table.lookup_variable(node.func.name) is None:
                 raise NameError(f"Undefined function: {node.func.name}")
-            func_val, func_type = self.variables[node.func.name]
+            else:
+                (type, address) = self.symbol_table.lookup_variable(node.func.name)
+                #func_val, func_type = self.variables[node.func.name]
         else:
             raise TypeError(f"No function to be applied {node.raw_structure()}")
 
@@ -507,8 +520,8 @@ def main():
     # Create AST for: let add = λx.λy.λz.(x + y + z) in ((add 1) 2) 3
     #expr_str = "let add = λx.λy.λz.(x + y + z) in ((add 1) 2) 3"
     #expr_str = "let add = 3 + 4 in add"
-    expr_str = "let result = 3 + 4 in result"
-    #expr_str = "let id = λx.(x) in (id 8)"
+    #expr_str = "let result = 3 + 4 in result"
+    expr_str = "let id = λx.(x) in (id 8)"
     #expr_str = "let inc = λx.(x + 1) in (inc 4)"
     #expr_str = "let one = 1 in one"
     #expr_str = "let add = λx.λy.(x + y) in 3"

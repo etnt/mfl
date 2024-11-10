@@ -2,7 +2,6 @@ import unittest
 import subprocess
 import os
 import sys
-import gc
 from llvmlite import binding as llvm
 import shlex  # For safe shell command construction
 
@@ -25,7 +24,7 @@ class TestMFLCompilation(unittest.TestCase):
         # Create a temporary directory for compilation
         self.temp_dir = "temp_test_dir"
         os.makedirs(self.temp_dir, exist_ok=True)
-        
+
 
 
     def tearDown(self):
@@ -46,9 +45,6 @@ class TestMFLCompilation(unittest.TestCase):
         # Explicitly dispose of LLVM resources
         generator.dispose()
         del generator
-
-        # Trigger garbage collection
-        gc.collect()
 
         try:
             llvm.parse_assembly(llvm_ir)
@@ -83,8 +79,8 @@ class TestMFLCompilation(unittest.TestCase):
     def test_binop_let(self):
         self.run_mfl_test("let result = 3 + 4 in result", "7")
 
-    #def test_let_addition(self):
-    #    self.run_mfl_test("let add = λx.λy.(x + y) in ((add 6) 9)", "15")
+    def test_let_id(self):
+        self.run_mfl_test("let id = λx.x in (id 21)", "21")
 
     #def test_nested_let(self):
     #    self.run_mfl_test("let inc = let add1 = λx.λy.(x+y) in (add1 1 2) in (inc 4)", "7")  # Adjust expected output if needed
