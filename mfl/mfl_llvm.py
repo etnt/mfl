@@ -250,7 +250,7 @@ class LLVMGenerator:
             if isinstance(node.body, Function):
                 # Add captured argument to local dict
                 capvars[node.arg.name] = (idx, arg_type)
-                print(f"Captured {node.arg.name} at index {idx} with type {arg_type}")
+
                 # Get inner function type recursively
                 inner_func , inner_func_type = curry_function(node.body, idx + 1, capvars.copy())
                 inner_func_type_ptr = inner_func_type.as_pointer()
@@ -301,7 +301,7 @@ class LLVMGenerator:
                 state_ptr = compute.args[0]  # state pointer
                 arg_val = compute.args[1]    # argument value
 
-                # Store the captured argument in the lambda state
+                self.comment("Store the captured argument in the lambda state")
                 idx_ptr = self.builder.gep(state_ptr, [ir.Constant(self.int_type, 0), ir.Constant(self.int_type, idx)])
                 self.builder.store(arg_val, idx_ptr)
 
@@ -309,15 +309,17 @@ class LLVMGenerator:
                 capvars[node.arg.name] = (idx, arg_type)
 
                 # Fill in the captured variable values with the pointers to the lambda state
+                self.comment("Load all the captured variable values from the lambda state")
                 for key in capvars.keys():
                     (val_idx, val_arg_type) = capvars[key]
                     arg_ptr = self.builder.gep(state_ptr, [ir.Constant(self.int_type, 0), ir.Constant(self.int_type, val_idx)])
                     self.symbol_table.add_variable(key, val_arg_type, arg_ptr) 
 
-                print(f"Capvars: {capvars}")
+                self.debug(f"Capvars: {capvars}")
                 self.debug(f"Symbol table:\n{self.symbol_table}")
 
                 # Generate body computation
+                self.comment(f"Generate body: {node.body}")
                 result = self.generate(node.body)
                 self.debug(f"Generated body({comp_name}): {node.body} -> {result}")
 
@@ -375,24 +377,19 @@ class LLVMGenerator:
         #if isinstance(func_val, (ir.GEPInstr, ir.AllocaInstr)):
         #    func_val = self.builder.load(func_val)
 
-        print(f"Function value: {func_val}")
-
         # Get function type
         if isinstance(func_val.type, ir.PointerType):
             func_ptr_type = func_val.type.pointee
             if isinstance(func_ptr_type, ir.FunctionType):
                 # Call the function to get next function pointer
-                print(f"Calling function with state_ptr: {self.state_ptr}, arg_val: {arg_val}")
                 next_func = self.builder.call(func_val, [self.state_ptr, arg_val])
                 self.debug(f"Generated Apply next function type: {next_func.type}")
                 return next_func
             else:
                 # This is the final computation function
-                print(f"Calling final computation function")
                 result = self.builder.call(func_val, [self.state_ptr, arg_val])
                 return result
         else:
-            print(f"func_val is not a pointer type: {func_val.type}")
             return func_val
 
 
