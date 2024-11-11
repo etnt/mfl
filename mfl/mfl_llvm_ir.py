@@ -1,13 +1,12 @@
 """
-LLVM IR Generator for MFL.
+LLVM IR Generator helper classes.
 
-This module provides helper classes for generating LLVM IR code directly.
-It follows the translation strategy outlined inTRANSLATION-STRATEGY.md.
+This module provides helper classes for generating LLVM IR code directly,
+without using llvmlite.
 """
 
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
-from mfl_ast import ASTNode, Var, Int, Bool, Function, Apply, Let, BinOp, UnaryOp
 
 class SymbolTable:
     """Tracks variable bindings and their locations in lambda state."""
@@ -51,11 +50,8 @@ class SymbolTable:
 
 class LLVMIRGenerator:
     """
-    Generates LLVM IR code for MFL AST nodes.
-
-    This class handles the direct generation of LLVM IR without using llvmlite.
-    It maintains internal state for tracking variables, generating unique names,
-    and managing the output IR code.
+    Helper class for generating LLVM IR code.
+    Provides methods for common IR patterns and code organization.
     """
     def __init__(self, verbose: bool = False):
         self.verbose: bool = verbose
@@ -94,15 +90,15 @@ class LLVMIRGenerator:
         self.emit('target triple = "arm64-apple-darwin23.6.0"')
         self.emit('target datalayout = ""')
         self.emit("")
-
+        
         # Lambda state type definition
         self.emit('%"lambda_state" = type {i32, i32, i32, i32, i32, i32, i32, i32}')
         self.emit("")
-
+        
         # External declarations
         self.emit('declare i32 @"printf"(i8* %".1", ...)')
         self.emit("")
-
+        
         # String constants
         self.emit('@".str.int" = private constant [3 x i8] c"%d\\00"')
         self.emit('@".str.bool" = private constant [3 x i8] c"%s\\00"')
@@ -183,14 +179,3 @@ class LLVMIRGenerator:
         else:
             raise ValueError(f"Unknown operator: {op}")
         return result_name
-
-    def generate(self, ast: ASTNode) -> None:
-        """Generate LLVM IR for the complete AST."""
-        self.generate_module_header()
-        self.generate_main_function_header()
-
-        # Generate code for the AST
-        self.emit_comment("Main expression evaluation")
-        # TODO: Implement AST traversal and code generation
-
-        self.generate_main_function_footer()

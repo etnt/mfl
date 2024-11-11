@@ -10,12 +10,13 @@ import subprocess
 import shlex
 from typing import Dict, Optional, Any
 
-from mfl_ast import (
+from .mfl_ast import (
     ASTNode, Var, Function, Apply, Let, Int, Bool, BinOp, UnaryOp
 )
-from mfl_type_checker import TyVar, TyCon
-from mfl_llvm_ir import LLVMIRGenerator
+from .mfl_type_checker import TyVar, TyCon
+from .mfl_llvm_ir import LLVMIRGenerator
 
+# Rest of the file remains unchanged
 class DirectLLVMGenerator:
     """
     Generates LLVM IR code from AST nodes without using llvmlite.
@@ -204,10 +205,10 @@ def main():
     """Test the direct LLVM generator with a simple expression"""
     expr_str = "let id = λx.(x) in (id 8)"
     
-    from mfl_ply_parser import parser as ply_parser
+    from .mfl_ply_parser import parser as ply_parser
     ast = ply_parser.parse(expr_str)
     
-    from mfl_type_checker import infer_j
+    from .mfl_type_checker import infer_j
     type_ctx = {}
     infer_j(ast, type_ctx)
     
