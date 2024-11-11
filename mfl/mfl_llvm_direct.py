@@ -8,7 +8,7 @@ captured variables.
 
 import subprocess
 import shlex
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List, Set
 
 from mfl_ast import (
     ASTNode, Var, Function, Apply, Let, Int, Bool, BinOp, UnaryOp
@@ -16,7 +16,6 @@ from mfl_ast import (
 from mfl_type_checker import TyVar, TyCon
 from mfl_llvm_ir import LLVMIRGenerator
 
-# Rest of the file remains unchanged
 class DirectLLVMGenerator:
     """
     Generates LLVM IR code from AST nodes without using llvmlite.
@@ -26,6 +25,8 @@ class DirectLLVMGenerator:
         self.verbose = verbose
         self.generate_comments = generate_comments
         self.ir_gen = LLVMIRGenerator(verbose=verbose)
+        self.functions: List[Function] = []  # Track functions to generate
+        self.function_names: Dict[Function, str] = {}  # Map functions to their names
 
     def debug(self, msg: str) -> None:
         """Print debug message if verbose mode is enabled"""
@@ -37,8 +38,15 @@ class DirectLLVMGenerator:
         Generate LLVM IR for an AST node.
         Returns the generated IR code.
         """
+        # First collect all functions
+        self._collect_functions(node)
+        
         # Generate module header
         self.ir_gen.generate_module_header()
+        
+        # Generate all function definitions first
+        for func in self.functions:
+            self._generate_function(func)
         
         # Generate main function
         self.ir_gen.generate_main_function_header()
@@ -46,7 +54,7 @@ class DirectLLVMGenerator:
         # Allocate initial state
         state_name = self.ir_gen.generate_state_alloc("state")
         
-        # Generate code based on node type
+        # Generate code for the main expression
         self._generate_expression(node, state_name)
         
         # Close main function
@@ -54,6 +62,25 @@ class DirectLLVMGenerator:
         
         # Get the complete IR code
         return self.ir_gen.get_ir()
+
+    def _collect_functions(self, node: ASTNode) -> None:
+        """Collect all function definitions from the AST"""
+        if isinstance(node, Function):
+            if node not in self.function_names:
+                self.functions.append(node)
+                self.function_names[node] = self.ir_gen.fresh_name("compute")
+                self._collect_functions(node.body)
+        elif isinstance(node, Let):
+            self._collect_functions(node.value)
+            self._collect_functions(node.body)
+        elif isinstance(node, Apply):
+            self._collect_functions(node.func)
+            self._collect_functions(node.arg)
+        elif isinstance(node, BinOp):
+            self._collect_functions(node.left)
+            self._collect_functions(node.right)
+        elif isinstance(node, UnaryOp):
+            self._collect_functions(node.operand)
 
     def _generate_expression(self, node: ASTNode, state_ptr: str) -> str:
         """Generate code for an expression"""
@@ -80,9 +107,8 @@ class DirectLLVMGenerator:
             return f"%\"{value}\""
             
         elif isinstance(node, Function):
-            # Generate function definition
-            func_name = self._generate_function(node)
-            return func_name
+            # Return function name for later use
+            return self.function_names[node]
             
         elif isinstance(node, Apply):
             # Generate function application
@@ -111,13 +137,13 @@ class DirectLLVMGenerator:
         else:
             raise ValueError(f"Unknown node type: {type(node)}")
 
-    def _generate_function(self, node: Function) -> str:
+    def _generate_function(self, node: Function) -> None:
         """Generate code for lambda function"""
+        # Get function name
+        func_name = self.function_names[node]
+        
         # Push new scope for function parameters
         self.ir_gen.symbol_table.push_scope()
-        
-        # Generate unique function name
-        func_name = self.ir_gen.fresh_name("compute")
         
         # Start function definition
         self.ir_gen.generate_function_header(func_name)
@@ -129,22 +155,14 @@ class DirectLLVMGenerator:
         self.ir_gen.generate_state_store(".1", param_index, "%\".2\"")
         
         # Generate body code
-        if isinstance(node.body, Function):
-            # Handle curried function by generating inner function
-            inner_func = self._generate_function(node.body)
-            self.ir_gen.emit(f'ret i32* @"{inner_func}"')
-        else:
-            # Generate regular body code
-            result = self._generate_expression(node.body, ".1")
-            self.ir_gen.emit(f'ret i32 {result}')
+        result = self._generate_expression(node.body, ".1")
+        self.ir_gen.emit(f'ret i32 {result}')
         
         # End function definition
         self.ir_gen.generate_function_footer()
         
         # Pop scope
         self.ir_gen.symbol_table.pop_scope()
-        
-        return func_name
 
     def _generate_apply(self, node: Apply, state_ptr: str) -> str:
         """Generate code for function application"""
@@ -218,7 +236,7 @@ def main():
     generator = DirectLLVMGenerator(verbose=False, generate_comments=True)
     llvm_ir = generator.generate(ast)
     
-    # Verify module
+    # Verify module DO NOT REMOVE THIS VERIFICAITION CODE !
     try:
         import llvmlite.binding as llvm
         llvm.parse_assembly(llvm_ir)
@@ -227,7 +245,7 @@ def main():
         for i, line in enumerate(llvm_ir.splitlines(), 1):
             print(f"{i:>{2}} | {line}")
         print(f"Module verification failed: {e}")
-        raise RuntimeError(f"Module verification failed: {e}") 
+        raise RuntimeError(f"Module verification failed: {e}")
     
     # Write the generated code to file
     ll_file = "mfl.ll"
