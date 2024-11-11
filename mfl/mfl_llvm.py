@@ -252,8 +252,8 @@ class LLVMGenerator:
                 capvars[node.arg.name] = (idx, arg_type)
 
                 # Get inner function type recursively
-                inner_func , inner_func_type = curry_function(node.body, idx + 1, capvars.copy())
-                inner_func_type_ptr = inner_func_type.as_pointer()
+                inner_func = curry_function(node.body, idx + 1, capvars.copy())
+                inner_func_type_ptr = inner_func.type.as_pointer()
 
                 # Create lambda function
                 lambda_arg_type = self.int_type # FIXME if arg_type.name == "int" else self.bool_type
@@ -352,12 +352,14 @@ class LLVMGenerator:
         # Process function value, handling nested applications
         if isinstance(node.func, Apply):
             # Recursively process inner application first
+            self.debug(">>> HERE 1")
             func_val = self.generate_apply(node.func)
         elif isinstance(node.func, Var):
             # Look up function from variables
             if self.symbol_table.lookup_variable(node.func.name) is None:
                 raise NameError(f"Undefined function: {node.func.name}")
             else:
+                self.debug(">>> HERE 2")
                 (type, func_val) = self.symbol_table.lookup_variable(node.func.name)
         else:
             raise TypeError(f"No function to be applied {node.raw_structure()}")
@@ -377,20 +379,46 @@ class LLVMGenerator:
         #if isinstance(func_val, (ir.GEPInstr, ir.AllocaInstr)):
         #    func_val = self.builder.load(func_val)
 
+         # Load the function pointer
+        func_ptr = self.get_function_ptr(func_val)
+        print(f"Loaded function pointer type: {func_ptr}")
+
+        # Call the function
+        result = self.builder.call(func_ptr, [self.state_ptr, arg_val])
+        print(f"Result type: {result.type}")
+
         # Get function type
-        if isinstance(func_val.type, ir.PointerType):
-            func_ptr_type = func_val.type.pointee
-            if isinstance(func_ptr_type, ir.FunctionType):
-                # Call the function to get next function pointer
-                next_func = self.builder.call(func_val, [self.state_ptr, arg_val])
-                self.debug(f"Generated Apply next function type: {next_func.type}")
-                return next_func
-            else:
-                # This is the final computation function
-                result = self.builder.call(func_val, [self.state_ptr, arg_val])
-                return result
-        else:
+        #self.debug(f"Generated Apply function type: {func_val.type}")
+        #if isinstance(func_val.type, ir.PointerType):
+        #    func_ptr_type = func_val.type.pointee
+        #    if isinstance(func_ptr_type, ir.FunctionType):
+        #        # Call the function to get next function pointer
+        #        next_func = self.builder.call(func_val, [self.state_ptr, arg_val])
+        #        self.debug(f"Generated Apply next function type: {next_func.type}")
+        #        return next_func
+        #    else:
+        #        # This is the final computation function
+        #        result = self.builder.call(func_val, [self.state_ptr, arg_val])
+        #        return result
+        #else:
+        return result
+
+    def get_function_ptr(self, func_val):
+        # If func_val is already a function pointer, return it
+        if isinstance(func_val.type.pointee, ir.FunctionType):
             return func_val
+
+        # If it's a pointer to a function pointer, load it
+        if isinstance(func_val.type.pointee, ir.PointerType) and isinstance(func_val.type.pointee.pointee, ir.FunctionType):
+            return self.builder.load(func_val)
+
+        # If it's a nested function pointer, keep loading until we get a function pointer
+        while isinstance(func_val.type, ir.PointerType):
+            func_val = self.builder.load(func_val)
+            if isinstance(func_val.type.pointee, ir.FunctionType):
+                return func_val
+
+        raise TypeError(f"Unable to get function pointer from value of type {func_val.type}")
 
 
     # ----------------------------------------------------------------
@@ -557,7 +585,7 @@ def main():
     #expr_str = "let inc = λx.(x + 1) in (inc 4)"
     #expr_str = "let one = 1 in one"
     #expr_str = "let add = λx.λy.(x + y) in 3"
-    #expr_str = "let add = λx.λy.(x + y) in ((add 6) 9)"
+    #expr_str = "let add = λx.λy.(x + y) in (add 4 5)"
     #expr_str = "let add = λx.λy.(x + y) in (add 6 9)"
     #expr_str = "let inc = let add1 = λx.λy.(x+y) in (add1 1) in (inc 4)"
 
@@ -573,7 +601,7 @@ def main():
     print(f"AST(raw): '{ast.raw_structure()}'")
 
     # Generate code
-    generator = LLVMGenerator(verbose=True, generate_comments=True)
+    generator = LLVMGenerator(verbose=False, generate_comments=True)
     result= generator.generate(ast)
 
     # Verify module

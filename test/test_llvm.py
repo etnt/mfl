@@ -82,6 +82,9 @@ class TestMFLCompilation(unittest.TestCase):
     def test_let_id(self):
         self.run_mfl_test("let id = λx.x in (id 21)", "21")
 
+    def test_let_add(self):
+        self.run_mfl_test("let add = λx.λy.(x + y) in (add 4 5)", "9")
+
     #def test_nested_let(self):
     #    self.run_mfl_test("let inc = let add1 = λx.λy.(x+y) in (add1 1 2) in (inc 4)", "7")  # Adjust expected output if needed
 
