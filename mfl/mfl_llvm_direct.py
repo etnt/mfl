@@ -8,7 +8,7 @@ captured variables.
 
 import subprocess
 import shlex
-from typing import Dict, Optional, Any, List, Set
+from typing import Dict, Optional, Any, List, Set, Tuple
 
 from mfl_ast import (
     ASTNode, Var, Function, Apply, Let, Int, Bool, BinOp, UnaryOp
@@ -25,13 +25,19 @@ class DirectLLVMGenerator:
         self.verbose = verbose
         self.generate_comments = generate_comments
         self.ir_gen = LLVMIRGenerator(verbose=verbose)
-        self.functions: List[Function] = []  # Track functions to generate
-        self.function_names: Dict[Function, str] = {}  # Map functions to their names
+        self.functions: List[Tuple[Function, str]] = []  # Track functions and their names
 
     def debug(self, msg: str) -> None:
         """Print debug message if verbose mode is enabled"""
         if self.verbose:
             print(f"LLVM: {msg}")
+
+    def get_function_name(self, func: Function) -> Optional[str]:
+        """Get the name for a function if it exists"""
+        for f, name in self.functions:
+            if f.arg.name == func.arg.name and f.body == func.body:
+                return name
+        return None
 
     def generate(self, node: ASTNode) -> str:
         """
@@ -45,8 +51,8 @@ class DirectLLVMGenerator:
         self.ir_gen.generate_module_header()
         
         # Generate all function definitions first
-        for func in self.functions:
-            self._generate_function(func)
+        for func, name in self.functions:
+            self._generate_function(func, name)
         
         # Generate main function
         self.ir_gen.generate_main_function_header()
@@ -66,9 +72,9 @@ class DirectLLVMGenerator:
     def _collect_functions(self, node: ASTNode) -> None:
         """Collect all function definitions from the AST"""
         if isinstance(node, Function):
-            if node not in self.function_names:
-                self.functions.append(node)
-                self.function_names[node] = self.ir_gen.fresh_name("compute")
+            if not self.get_function_name(node):
+                name = self.ir_gen.fresh_name("compute")
+                self.functions.append((node, name))
                 self._collect_functions(node.body)
         elif isinstance(node, Let):
             self._collect_functions(node.value)
@@ -103,12 +109,14 @@ class DirectLLVMGenerator:
             if index is None:
                 raise NameError(f"Undefined variable: {node.name}")
             value = self.ir_gen.generate_state_load(state_ptr, index)
-            self.ir_gen.generate_print_int(f"%\"{value}\"")
             return f"%\"{value}\""
             
         elif isinstance(node, Function):
             # Return function name for later use
-            return self.function_names[node]
+            name = self.get_function_name(node)
+            if name is None:
+                raise ValueError(f"Function not found: {node}")
+            return name
             
         elif isinstance(node, Apply):
             # Generate function application
@@ -137,16 +145,13 @@ class DirectLLVMGenerator:
         else:
             raise ValueError(f"Unknown node type: {type(node)}")
 
-    def _generate_function(self, node: Function) -> None:
+    def _generate_function(self, node: Function, name: str) -> None:
         """Generate code for lambda function"""
-        # Get function name
-        func_name = self.function_names[node]
-        
         # Push new scope for function parameters
         self.ir_gen.symbol_table.push_scope()
         
         # Start function definition
-        self.ir_gen.generate_function_header(func_name)
+        self.ir_gen.generate_function_header(name)
         
         # Add parameter to symbol table
         param_index = self.ir_gen.symbol_table.add_variable(node.arg.name)
@@ -175,9 +180,13 @@ class DirectLLVMGenerator:
         else:
             arg_val = self._generate_expression(node.arg, state_ptr)
         
+        # Convert loaded integer back to function pointer
+        func_ptr = self.ir_gen.fresh_name("func_ptr")
+        self.ir_gen.emit(f'%"{func_ptr}" = inttoptr i32 {func_name} to i32 (%"lambda_state"*, i32)*')
+        
         # Generate function call
         result = self.ir_gen.fresh_name("result")
-        self.ir_gen.emit(f'%"{result}" = call i32 @"{func_name}"(%"lambda_state"* %"{state_ptr}", i32 {arg_val})')
+        self.ir_gen.emit(f'%"{result}" = call i32 %"{func_ptr}"(%"lambda_state"* %"{state_ptr}", i32 {arg_val})')
         
         # Print result
         self.ir_gen.generate_print_int(f"%\"{result}\"")
@@ -190,11 +199,20 @@ class DirectLLVMGenerator:
         self.ir_gen.symbol_table.push_scope()
         
         # Generate value
-        value = self._generate_expression(node.value, state_ptr)
-        
-        # Add variable to symbol table and store in state
-        var_index = self.ir_gen.symbol_table.add_variable(node.name.name)
-        self.ir_gen.generate_state_store(state_ptr, var_index, value)
+        if isinstance(node.value, Function):
+            # For function values, store function pointer as integer
+            func_name = self._generate_expression(node.value, state_ptr)
+            var_index = self.ir_gen.symbol_table.add_variable(node.name.name)
+            # Convert function pointer to integer for storage
+            ptr = self.ir_gen.fresh_name("func_ptr")
+            self.ir_gen.emit(f'%"{ptr}" = ptrtoint i32 (%"lambda_state"*, i32)* @"{func_name}" to i32')
+            self.ir_gen.generate_state_store(state_ptr, var_index, f"%\"{ptr}\"")
+            value = ptr
+        else:
+            # For other values, evaluate and store normally
+            value = self._generate_expression(node.value, state_ptr)
+            var_index = self.ir_gen.symbol_table.add_variable(node.name.name)
+            self.ir_gen.generate_state_store(state_ptr, var_index, value)
         
         # Generate body
         result = self._generate_expression(node.body, state_ptr)
