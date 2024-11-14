@@ -204,7 +204,8 @@ clang -O3 -o add mfl.ll
 An alternative way, where we can inspect the optimized IR code:
 
 ```bash
-# First: brew install llvm
+# First: brew install llvm@14
+# (version 14 since that's what llvmlite wants)
 
 $ /opt/homebrew/opt/llvm/bin/opt -S -O3 mfl.ll -o mfl_optimized.ll
 $ /opt/homebrew/opt/llvm/bin/llc -filetype=obj mfl_optimized.ll -o mfl.o
