@@ -10,6 +10,9 @@ from mfl_parser import FunctionalParser
 from mfl_ply_parser import parser as ply_parser
 from mfl_type_checker import infer_j
 from mfl_core_erlang_generator import generate_core_erlang
+from mfl_transform import ASTTransformer
+
+
 
 def main():
     """
@@ -45,6 +48,13 @@ def main():
                 expr_type = infer_j(ast, type_ctx)
                 print(f"AST(typed): {ast.typed_structure()}")
                 print(f"Inferred final type: {expr_type}")
+
+
+                # Perform program transformations
+                ast = ASTTransformer.transform_letrec_to_let(ast)
+                print(f"AST(transformed): {ast}")
+
+                # Maybe stop processing here?
                 if args.frontend_only:
                     return
 

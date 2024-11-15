@@ -15,9 +15,6 @@ class ASTNode:
         # To hold type information
         self.type: Optional['MonoType'] = None
 
-        # To hold LLVM IR information
-        self.llvm: Dict[str, str] = {}
-
     # The method allows you to add or change an attribute of an object using
     # strings to specify the attribute's name.
     def _set_attr(self, name, value):

@@ -193,6 +193,21 @@ Compilation successful!
 15
 ```
 
+Example, using recursion with `letrec` and the SKI backend:
+
+```bash
+$ python ./mfl/mfl.py -k  "letrec fac = λx.(if (x == 0) then 1 else (x * (fac (x - 1)))) in (fac 5)"
+Successfully parsed!
+AST(pretty): letrec fac = λx.if (x == 0) then 1 else (x * (fac (x - 1))) in (fac 5)
+AST(typed): LetRec<int>(Var<->(int, int)>("fac"), Function<->(int, int)>(Var<int>("x"), If<int>(BinOp<bool>("==", Var<int>("x"), Int<int>(0)), Int<int>(1), BinOp<int>("*", Var<int>("x"), Apply<int>(Var<->(int, int)>("fac"), BinOp<int>("-", Var<int>("x"), Int<int>(1)))))), Apply<int>(Var<->(int, int)>("fac"), Int<int>(5)))
+Inferred final type: int
+AST(transformed): let Y = λf.(λx.(f (x x)) λx.(f (x x))) in let fac = (Y λfac.λx.if (x == 0) then 1 else (x * (fac (x - 1)))) in (fac 5)
+
+Translating to SKI combinators...
+SKI term: (((S (K ((S I) (K 5)))) ((S I) (K ((S (K (S ((S ((S (K if)) ((S ((S (K ==)) I)) (K 0)))) (K 1))))) ((S (K (S ((S (K *)) I)))) ((S ((S (K S)) ((S (K K)) I))) (K ((S ((S (K -)) I)) (K 1))))))))) ((S ((S ((S (K S)) ((S (K K)) I))) (K ((S I) I)))) ((S ((S (K S)) ((S (K K)) I))) (K ((S I) I)))))
+SKI machine result: 120
+```
+
 ## LLVM IR Generation
 
 Compiling to native machine code, on Mac:

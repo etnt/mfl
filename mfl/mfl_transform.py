@@ -1,7 +1,7 @@
 from typing import Any
-from mfl.mfl_ast import (
-    AST, ASTNode, Var, Function, Apply, Let, LetRec, 
-    Int, Bool, BinOp, UnaryOp, If
+from mfl_ast import (
+    ASTNode, Var, Function, Apply, Let,
+    BinOp, UnaryOp, If, LetRec
 )
 
 class ASTTransformer:
@@ -25,16 +25,16 @@ class ASTTransformer:
         return y_combinator
 
     @classmethod
-    def transform_letrec_to_let(cls, ast: AST) -> AST:
+    def transform_letrec_to_let(cls, ast: ASTNode) -> ASTNode:
         """
         Transform letrec construct to let construct using Y combinator
-        
+
         Transformation rule:
-        letrec v = B in E ==   
+        letrec v = B in E ==
             let val Y = <y-combinator>
             in let val v = Y(\v.B) in E)
         """
-        def transform_node(node: AST) -> AST:
+        def transform_node(node: ASTNode) -> ASTNode:
             # Recursively transform child nodes first
             if isinstance(node, LetRec):
                 # Create Y combinator
@@ -45,14 +45,14 @@ class ASTTransformer:
                 rec_lambda = Function(node.name, node.value)
 
                 # Construct the transformation:
-                # let Y = <y-combinator> in 
+                # let Y = <y-combinator> in
                 # let v = Y(λv.B) in E
                 transformed = Let(
-                    y_var, 
-                    y_combinator, 
+                    y_var,
+                    y_combinator,
                     Let(
-                        node.name, 
-                        Apply(y_var, rec_lambda), 
+                        node.name,
+                        Apply(y_var, rec_lambda),
                         transform_node(node.body)
                     )
                 )
@@ -61,18 +61,18 @@ class ASTTransformer:
             # Recursively transform child nodes for other AST types
             if isinstance(node, Function):
                 return Function(
-                    node.arg, 
+                    node.arg,
                     transform_node(node.body)
                 )
             elif isinstance(node, Apply):
                 return Apply(
-                    transform_node(node.func), 
+                    transform_node(node.func),
                     transform_node(node.arg)
                 )
             elif isinstance(node, Let):
                 return Let(
-                    node.name, 
-                    transform_node(node.value), 
+                    node.name,
+                    transform_node(node.value),
                     transform_node(node.body)
                 )
             elif isinstance(node, If):
@@ -83,16 +83,16 @@ class ASTTransformer:
                 )
             elif isinstance(node, BinOp):
                 return BinOp(
-                    node.op, 
-                    transform_node(node.left), 
+                    node.op,
+                    transform_node(node.left),
                     transform_node(node.right)
                 )
             elif isinstance(node, UnaryOp):
                 return UnaryOp(
-                    node.op, 
+                    node.op,
                     transform_node(node.operand)
                 )
-            
+
             # For simple nodes like Var, Int, Bool, return as-is
             return node
 

@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(current_dir, '../mfl'))
 import unittest
 from mfl_ply_parser import parser
 from mfl_ski import SKIMachine, execute_ast
-from mfl_type_checker import Int, Bool, Apply, Function, Var, BinOp
+from mfl_transform import ASTTransformer
 
 class TestSKIMachine(unittest.TestCase):
 
@@ -109,6 +109,13 @@ class TestSKIMachine(unittest.TestCase):
         ast = self.parser.parse("let max = λx.λy.(((if x > y then 1 else 0) * x) + ((if x <= y then 1 else 0) * y)) in ((max 15) 10)")
         result = execute_ast(ast)
         self.assertEqual(result.value, 15)
+
+    def test_letrec_to_let(self):
+        # Test recursive function using letrec when transformed to let + y-combinator
+        ast = self.parser.parse("letrec fac = λx.(if (x == 0) then 1 else (x * (fac (x - 1)))) in (fac 5)")
+        ast = ASTTransformer.transform_letrec_to_let(ast)
+        result = execute_ast(ast)
+        self.assertEqual(result.value, 120)
 
 if __name__ == "__main__":
     unittest.main()
