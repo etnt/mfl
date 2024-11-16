@@ -179,7 +179,8 @@ class TestASTInterpreter(unittest.TestCase):
 
     def test_letrec_to_let_fibonacci(self):
         # Test recursive function using letrec when transformed to let + y-combinator
-        ast = self.parser.parse("letrec fibonacci = λx.(if (x == 0) then 0 else (if (x == 1) then 1 else (fibonacci (x - 1) + (fibonacci (x - 2))))) in (fibonacci 10)")
+        # Note: one-based indexing is used in this test case
+        ast = self.parser.parse("letrec fibonacci = λx.(if (x == 1) then 0 else (if (x == 2) then 1 else (fibonacci (x - 1) + (fibonacci (x - 2))))) in (fibonacci 10)")
         ast = ASTTransformer.transform_letrec_to_let(ast)
         result = execute_ast(ast)
         self.assertEqual(result.value, 34)
