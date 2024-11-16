@@ -53,6 +53,7 @@ def main():
                 # Perform program transformations
                 ast = ASTTransformer.transform_letrec_to_let(ast)
                 print(f"AST(transformed): {ast}")
+                print(f"AST(transformed, raw): {ast.raw_structure()}")
 
                 # Maybe stop processing here?
                 if args.frontend_only:
