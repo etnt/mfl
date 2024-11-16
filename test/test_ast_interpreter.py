@@ -8,10 +8,15 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 # add ../mfl to the Python path
 sys.path.insert(0, os.path.join(current_dir, '../mfl'))
 
+from mfl_ply_parser import parser
 from mfl_ast import execute_ast
 from mfl_type_checker import Int, Bool, BinOp, Let, Var, Function, Apply, If
+from mfl_transform import ASTTransformer
 
 class TestASTInterpreter(unittest.TestCase):
+
+    def setUp(self):
+        self.parser = parser
 
     def test_greater_than(self):
         # Test 5 > 3 (should be True)
@@ -164,6 +169,20 @@ class TestASTInterpreter(unittest.TestCase):
         )
         result = execute_ast(abs_func, False)
         self.assertEqual(result.value, 5)
+
+    def test_letrec_to_let(self):
+        # Test recursive function using letrec when transformed to let + y-combinator
+        ast = self.parser.parse("letrec fac = λx.(if (x == 0) then 1 else (x * (fac (x - 1)))) in (fac 5)")
+        ast = ASTTransformer.transform_letrec_to_let(ast)
+        result = execute_ast(ast)
+        self.assertEqual(result.value, 120)
+
+    def test_letrec_to_let_fibonacci(self):
+        # Test recursive function using letrec when transformed to let + y-combinator
+        ast = self.parser.parse("letrec fibonacci = λx.(if (x == 0) then 0 else (if (x == 1) then 1 else (fibonacci (x - 1) + (fibonacci (x - 2))))) in (fibonacci 10)")
+        ast = ASTTransformer.transform_letrec_to_let(ast)
+        result = execute_ast(ast)
+        self.assertEqual(result.value, 34)
 
 
 if __name__ == "__main__":

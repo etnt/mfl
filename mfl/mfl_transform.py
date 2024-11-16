@@ -8,19 +8,36 @@ class ASTTransformer:
     @staticmethod
     def create_y_combinator() -> Function:
         """
-        Create the Y combinator as an AST Function node
-        Y = λf.(λx.f (x x)) (λx.f (x x))
-        """
-        # Create the inner lambda x.f (x x)
-        inner_x = Var('x')
-        inner_f = Var('f')
-        inner_body = Apply(inner_f, Apply(inner_x, inner_x))
-        inner_lambda = Function(inner_x, inner_body)
+        Original implementation:
 
-        # Create the outer lambda f.(λx.f (x x)) (λx.f (x x))
+          Y = λf.(λx.f (x x)) (λx.f (x x))
+
+        Create a more controlled Y combinator as an AST Function node
+        that introduces an extra argument to control recursion and
+        prevent immediate infinite expansion.
+        New implementation: 
+
+          Y = λf.(λx.f (λy. x x y)) (λx.f (λy. x x y))
+
+        """
+        # Create variables
         f = Var('f')
-        y_body = Apply(inner_lambda, inner_lambda)
-        y_combinator = Function(f, y_body)
+        x = Var('x')
+        y = Var('y')
+
+        # Inner lambda: λy. x x y
+        inner_application = Apply(
+            Apply(x, x), 
+            y
+        )
+        inner_lambda = Function(y, inner_application)
+
+        # Outer lambda: λx.f (λy. x x y)
+        outer_body = Apply(f, inner_lambda)
+        outer_lambda = Function(x, outer_body)
+
+        # Final Y combinator: λf.(λx.f (λy. x x y)) (λx.f (λy. x x y))
+        y_combinator = Function(f, Apply(outer_lambda, outer_lambda))
 
         return y_combinator
 
