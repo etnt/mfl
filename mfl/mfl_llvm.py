@@ -15,6 +15,7 @@ from mfl_ast import (
 from mfl_type_checker import (
     TyVar, TyCon
 )
+from mfl_transform import ASTTransformer
 import subprocess
 import shlex  # For safe shell command construction
 
@@ -590,7 +591,8 @@ def main():
     #expr_str = "let add = λx.λy.(x + y) in 3"
     #expr_str = "let add = λx.λy.(x + y) in (add 4 5)"
     #expr_str = "let add = λx.λy.(x + y) in (add 6 9)"
-    expr_str = "let inc = λx.(x + 1) in let add = λx.λy.(x+y) in (inc (add 7 2))"
+    #expr_str = "let inc = λx.(x + 1) in let add = λx.λy.(x+y) in (inc (add 7 2))"
+    expr_str = "letrec fac = λx.(if (x == 0) then 1 else (x * (fac (x - 1)))) in (fac 5)"
 
     from mfl_ply_parser import parser as ply_parser
     ast = ply_parser.parse(expr_str)
@@ -602,6 +604,11 @@ def main():
     infer_j(ast, type_ctx)
 
     print(f"AST(raw): '{ast.raw_structure()}'")
+
+    # Perform program transformations
+    ast = ASTTransformer.transform_letrec_to_let(ast)
+    print(f"AST(transformed): {ast}")
+    print(f"AST(transformed,raw): {ast.raw_structure()}")
 
     # Generate code
     generator = LLVMGenerator(verbose=False, generate_comments=True)

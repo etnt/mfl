@@ -24,7 +24,7 @@ Example Core Erlang output:
 
 from typing import Any, Dict, List
 from mfl_ast import (
-    Var, Int, Bool, Function, Apply, Let, BinOp
+    Var, Int, Bool, Function, Apply, Let, BinOp, If
 )
 
 class CoreErlangGenerator:
@@ -65,6 +65,8 @@ class CoreErlangGenerator:
             return self.generate_let(node)
         elif isinstance(node, BinOp):
             return self.generate_binop(node)
+        elif isinstance(node, If):
+            return self.generate_if(node)
         else:
             raise ValueError(f"Unknown AST node type: {type(node)}")
 
@@ -132,7 +134,13 @@ class CoreErlangGenerator:
             "/": "'div'",  # Integer division in Core Erlang
             "&": "'and'",
             "|": "'or'",
-            "!": "'not'"
+            "!": "'not'",
+            "==": "'=='",
+            "!=": "'/='",
+            "<": "'<'",
+            "<=": "'=<'",
+            ">": "'>'",
+            ">=": "'>='"
         }
 
         left = self.generate(node.left)
@@ -142,6 +150,19 @@ class CoreErlangGenerator:
         # Operators such as + are not part of the Core Erlang language, so the compiler
         # has translated the use of + to a call to the BIF erlang:'+'/2.
         return f"call 'erlang':{op} ({left}, {right})"
+
+    def generate_if(self, node: If) -> str:
+        """
+        Generate Core Erlang code for if-then-else expression.
+        Format: if Cond then Expr1 else Expr2
+        """
+        cond = self.generate(node.cond)
+        then_expr = self.generate(node.then_expr)
+        else_expr = self.generate(node.else_expr)
+        print(f"cond: {cond}")
+        print(f"then_expr: {then_expr}")
+        print(f"else_expr: {else_expr}")
+        return f"case <> of <> when {cond} -> {then_expr} <> when 'true' -> {else_expr} end"
 
 def generate_core_erlang(ast: Any, output="mfl") -> str:
     """
