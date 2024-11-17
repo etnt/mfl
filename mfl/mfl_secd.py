@@ -36,7 +36,7 @@ Instructions:
 """
 
 from mfl_ast import (
-    Int, Bool, Var, Function, Apply, Let, BinOp, UnaryOp
+    Int, Bool, Var, Function, Apply, Let, BinOp, UnaryOp, If
 )
 
 from dataclasses import dataclass
@@ -202,8 +202,12 @@ class SECDMachine:
             self.control = then_branch if condition else else_branch
 
         elif op == "JOIN":
+            # Return from conditional: Restore state from dump and push top of stack back on stack
+            top = self.stack.pop()
             # Return from conditional: Restore state from dump
             self.stack, self.env, self.control = self.dump.pop()
+            # Push top of stack back on stack
+            self.stack.append(top)
 
         elif op == "LDF":
             # Create closure: Push new closure with current environment
@@ -353,6 +357,19 @@ def compile_ast(ast, env_map=None, level=0, verbose=False):
             *body_code
         ]
 
+    elif isinstance(ast, If):
+        # Compile condition
+        cond_code = compile_ast(ast.cond, env_map, level)
+
+        # Compile then and else branches.  IMPORTANT: Add JOIN at the end of each branch.
+        then_code = compile_ast(ast.then_expr, env_map, level) + ["JOIN"]
+        else_code = compile_ast(ast.else_expr, env_map, level) + ["JOIN"]
+
+        return [
+            *cond_code,
+            ("SEL",(then_code, else_code)),
+        ]
+
     elif isinstance(ast, BinOp):
         # Compile operands
         left_code = compile_ast(ast.left, env_map, level)
@@ -416,11 +433,12 @@ def execute_ast(ast, verbose=False):
     return machine.run(instructions)
 
 if __name__ == "__main__":
-    # Example usage
-    from mfl_type_checker import Int, BinOp
 
     # Create AST for: 5 + 3
-    ast = BinOp("+", Int(5), Int(3))
+    #ast = BinOp("+", Int(5), Int(3))
+
+    # let max = λx.λy.if (x > y) then x else y in (max 3 5)
+    ast = Let(Var("max"), Function(Var("x"), Function(Var("y"), If(BinOp(">", Var("x"), Var("y")), Var("x"), Var("y")))), Apply(Apply(Var("max"), Int(3)), Int(5)))
 
     result = execute_ast(ast)
-    print(f"Result: {result}")  # Output: 8
+    print(f"Result: {result}") 
