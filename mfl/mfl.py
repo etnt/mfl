@@ -5,6 +5,8 @@ MFL (Mini Functional Language) Parser and Type Checker
 
 import argparse
 import subprocess
+import copy
+import sys
 import shlex  # For safe shell command construction
 from mfl_parser import FunctionalParser
 from mfl_ply_parser import parser as ply_parser
@@ -37,10 +39,13 @@ def main():
     # If expression is provided as command-line argument, use it
     if args.expression:
         try:
-            # ast = parser.parse(args.expression)
             ast = ply_parser.parse(args.expression)
-            print("Successfully parsed!")
-            print(f"AST(pretty): {ast}")
+            if ast is None:
+                print("Parsing failed!")
+                sys.exit(1)
+            else:
+                print("Successfully parsed!")
+                print(f"AST(pretty): {ast}")
 
             # Type check the parsed expression
             type_ctx = {}  # Empty typing context
@@ -51,6 +56,7 @@ def main():
 
 
                 # Perform program transformations
+                ast_not_transformed = copy.deepcopy(ast)
                 ast = ASTTransformer.transform_letrec_to_let(ast)
                 print(f"AST(transformed): {ast}")
                 print(f"AST(transformed, raw): {ast.raw_structure()}")
@@ -129,6 +135,7 @@ def main():
                 else:
                     try:
                         # Generate Core Erlang code
+                        ast = ast_not_transformed
                         core_erlang = generate_core_erlang(ast, args.output)
                         if args.verbose:
                             print("\nGenerated Core Erlang code:")

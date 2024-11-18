@@ -49,16 +49,20 @@ def p_expr_var(p):
     p[0] = Var(p[1])
 
 def p_expr_let(p):
-    '''expr : LET IDENTIFIER EQUALS expr IN expr'''
+    '''expr : LET IDENTIFIER EQUALS expr_or_lambda IN expr'''
     p[0] = Let(Var(p[2]), p[4], p[6])
 
+def p_expr_or_lambda(p):
+    '''expr_or_lambda : expr
+                       | expr_lambda'''
+    p[0] = p[1]
+
 def p_expr_letrec(p):
-    '''expr : LETREC IDENTIFIER EQUALS expr IN expr'''
+    '''expr : LETREC IDENTIFIER EQUALS expr_lambda IN expr'''
     p[0] = LetRec(Var(p[2]), p[4], p[6])
 
-
 def p_expr_lambda(p):
-    '''expr : LAMBDA IDENTIFIER DOT expr'''
+    '''expr_lambda : LAMBDA IDENTIFIER DOT expr'''
     p[0] = Function(Var(p[2]), p[4])
 
 def p_expr_app(p):
@@ -71,9 +75,10 @@ def p_expr_not(p):
 
 def p_error(p):
     if p:
-        print("Syntax error at '%s'" % p.value)
+        raise ValueError(f"Syntax error at '{p.value}'")
     else:
-        print("Syntax error at EOF")
+        raise ValueError("Syntax error at EOF")
+
 
 parser = yacc.yacc()
 

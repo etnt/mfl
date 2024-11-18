@@ -29,7 +29,7 @@ An implementation of the SECD (Stack, Environment, Control, Dump) virtual machin
 The SECD machine serves as one of the execution backends for the MFL language, allowing direct interpretation of MFL expressions without compilation via Erlang Core.
 
 ### 4. MFL - Core Erlang Generator (mfl_core_erlang_generator.py)
-A code generator that translates parsed and type-checked expressions into Erlang Core language code. Supports lambda abstractions, function applications, let bindings, and arithmetic expressions.
+A code generator that translates parsed and type-checked expressions into Erlang Core language code. Supports lambda abstractions, function applications, let bindings, and arithmetic expressions. See also [Core Erlang by Example](https://www.erlang.org/blog/core-erlang-by-example/) and [Core Erlang](https://www2.it.uu.se/research/group/hipe/cerl/doc/core_erlang-1.0.3.pdf).
 
 ### 5. MFL - LLVM IR Generator (mfl_llvm.py)
 A code generator that translates parsed and type-checked expressions into LLVM IR.  This allows for compilation to native machine code using the LLVM compiler toolchain (clang).
@@ -49,6 +49,9 @@ An implementation of the SKI combinator calculus machine that provides another e
 - Reducing SKI expressions to normal form using combinator reduction rules
 - Supporting arithmetic, comparison, and boolean operations
 This implementation demonstrates how complex lambda expressions can be reduced to a minimal set of combinators while preserving their computational meaning.
+
+### 8. MFL - Transform (mfl_transform.py)
+A simple transformation that converts `letrec` constructs to `let` constructs plus using a `Y-combinator` to achieve recursion. This transformation is useful for languages that do not support `letrec` directly.
 
 ## Requirements
 
