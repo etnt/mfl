@@ -22,7 +22,7 @@ MFL is just a learning project, playing around with typical concepts of function
 An educational implementation of the Hindley-Milner type inference system, demonstrating how programming language type systems work. Includes polymorphic type inference, unification, and type checking with detailed documentation explaining core concepts. This implementation was made after reading: [Damas-Hindley-Milner inference two ways](https://bernsteinbear.com/blog/type-inference/) and implements the Algorithm J.
 
 ### 2. MFL - PLY Parser and Lexer (mfl_ply_parser.py, mfl_ply_lexer.py)
-A modern parser implementation using PLY (Python Lex-Yacc) that replaced the older parser. The lexer defines tokens for all language features including lambda abstractions, let bindings, arithmetic operations, and boolean operations. The parser implements the grammar rules and builds an Abstract Syntax Tree (AST) from the token stream. This implementation provides better error handling and a more maintainable structure compared to the previous parser.
+A modern parser implementation using PLY (Python Lex-Yacc) that replaced the older parser. The lexer defines tokens for all language features including lambda abstractions, let bindings, arithmetic operations, and boolean operations. The parser implements the grammar rules and builds an Abstract Syntax Tree (AST) from the token stream. This implementation provides better error handling and a more maintainable structure compared to the previous parser. See also: [PLY: Python Lex-Yacc](https://ply.readthedocs.io/en/latest/ply.html).
 
 ### 3. MFL - SECD Machine (mfl_secd.py)
 An implementation of the SECD (Stack, Environment, Control, Dump) virtual machine for evaluating lambda calculus expressions.
@@ -51,7 +51,8 @@ An implementation of the SKI combinator calculus machine that provides another e
 This implementation demonstrates how complex lambda expressions can be reduced to a minimal set of combinators while preserving their computational meaning.
 
 ### 8. MFL - Transform (mfl_transform.py)
-A simple transformation that converts `letrec` constructs to `let` constructs plus using a `Y-combinator` to achieve recursion. This transformation is useful for languages that do not support `letrec` directly.
+An AST transformation code that converts `letrec` constructs to `let` constructs plus using a `Y-combinator` to achieve recursion. This transformation is useful for languages that do not support `letrec` directly. For Core Erlang however, which supports a form of
+`letrec`, a special transformation is made to fit how Core Erlang wants it.
 
 ## Requirements
 
@@ -85,14 +86,15 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   -v, --verbose         Enable verbose output from all modules
-  -b, --backend-verbose
-                        Enable verbose output from backend
+  -f, --frontend-only   Only run the parser and type checker
+  -b, --backend-verbose Enable verbose output from backend
   -o, --output OUTPUT   Output file name
-  -s, --secd           Execute using SECD machine
-  -k, --ski            Execute using SKI combinator machine
-  -a, --ast            Execute using AST interpreter
+  -e, --erlang          Compile to BEAM code via Core Erlang
+  -s, --secd            Execute using SECD machine
+  -k, --ski             Execute using SKI combinator machine
+  -a, --ast             Execute using AST interpreter
   -g, --gmachine        Execute using G-machine
-  -l, --llvm           Generate LLVM IR and compile to binary code 
+  -l, --llvm            Generate LLVM IR and compile to binary code 
 ```
 
 Note: The LLVM- and G-machine backends are not working atm.
@@ -101,16 +103,16 @@ Note: The LLVM- and G-machine backends are not working atm.
 Example, generating BEAM code:
 
 ```bash
-❯ python3 ./mfl/mfl.py "let double = λx.(x*2) in (double 21)"
+❯ python3 ./mfl/mfl.py -e -o double21 "let double = λx.(x*2) in (double 21)"
 Successfully parsed!
 AST: let double = λx.(x * 2) in (double 21)
 AST(typed): Let<int>(Var<->(int, int)>("double"), Function<->(int, int)>(Var<int>("x"), BinOp<int>("*", Var<int>("x"), Int<int>(2))), Apply<int>(Var<->(int, int)>("double"), Int<int>(21)))
 Inferred type: int
-Output written to: mfl.core ,compiling to BEAM as: erlc +from_core mfl.core
+Output written to: double21.core ,compiling to BEAM as: erlc +from_core double21.core
 Compilation successful!
 
 ❯ erl
-1> mfl:main().
+1> double21:main().
 42
 ```
 

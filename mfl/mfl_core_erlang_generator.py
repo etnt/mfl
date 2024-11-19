@@ -14,6 +14,7 @@ Key features implemented:
 - Lambda abstractions (fun expressions)
 - Function applications
 - Let bindings
+- Letrec bindings
 - Basic arithmetic operations
 
 Example Core Erlang output:
@@ -24,7 +25,7 @@ Example Core Erlang output:
 
 from typing import Any, Dict, List
 from mfl_ast import (
-    Var, Int, Bool, Function, Apply, Let, BinOp, If
+    Var, Int, Bool, Function, Apply, Let, BinOp, If, LetRec
 )
 
 class CoreErlangGenerator:
@@ -63,6 +64,8 @@ class CoreErlangGenerator:
             return self.generate_apply(node)
         elif isinstance(node, Let):
             return self.generate_let(node)
+        elif isinstance(node, LetRec):
+            return self.generate_letrec(node)
         elif isinstance(node, BinOp):
             return self.generate_binop(node)
         elif isinstance(node, If):
@@ -120,6 +123,20 @@ class CoreErlangGenerator:
         body = self.generate(node.body)
         self.indentation -= 1
         return f"let <{var}> =\n{self.indent()}{value}\nin\n{self.indent()}{body}"
+
+    def generate_letrec(self, node: LetRec) -> str:
+        """
+        Generate Core Erlang code for recursive let binding.
+        Format: letrec <Var> = Value in Body.
+        """
+        var = self.generate_var(node.name)
+        value = self.generate(node.value)
+        self.indentation += 1
+        # The body here must have been transformed to be e.g:  Apply(Var("'Loop'/1") , ...)
+        # And we are only interested in the function body to fit how Core Erlang wants it.
+        body = self.generate(node.body.func)
+        self.indentation -= 1
+        return f"letrec {var} =\n{self.indent()}{value}\nin\n{self.indent()}{body}"
 
     def generate_binop(self, node: BinOp) -> str:
         """

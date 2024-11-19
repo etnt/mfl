@@ -27,6 +27,7 @@ def main():
     arg_parser.add_argument('-f', '--frontend-only', action='store_true', help='Only run the parser and type checker')
     arg_parser.add_argument('-b', '--backend-verbose', action='store_true', help='Enable verbose output from backend')
     arg_parser.add_argument('-o', '--output', default="a.out", help='Output file name (without suffix)')
+    arg_parser.add_argument('-e', '--erlang', action='store_true', help='Compile to BEAM code via Core Erlang')
     arg_parser.add_argument('-s', '--secd', action='store_true', help='Execute using SECD machine')
     arg_parser.add_argument('-k', '--ski', action='store_true', help='Execute using SKI combinator machine')
     arg_parser.add_argument('-a', '--ast', action='store_true', help='Execute using AST interpreter')
@@ -56,8 +57,11 @@ def main():
 
 
                 # Perform program transformations
-                ast_not_transformed = copy.deepcopy(ast)
-                ast = ASTTransformer.transform_letrec_to_let(ast)
+                transformer = ASTTransformer()
+                if args.erlang:
+                    ast = transformer.letrec_for_core_erlang(ast)
+                else:
+                    ast = transformer.transform_letrec_to_let(ast)
                 print(f"AST(transformed): {ast}")
                 print(f"AST(transformed, raw): {ast.raw_structure()}")
 
@@ -132,10 +136,9 @@ def main():
                             print("Error: clang command not found. Make sure it's in your PATH.")
                     except Exception as e:
                         print(f"Error during code generation: {str(e)}")
-                else:
+                elif args.erlang:
                     try:
                         # Generate Core Erlang code
-                        ast = ast_not_transformed
                         core_erlang = generate_core_erlang(ast, args.output)
                         if args.verbose:
                             print("\nGenerated Core Erlang code:")
@@ -161,6 +164,8 @@ def main():
                             print("Error: erlc command not found. Make sure it's in your PATH.")
                     except Exception as e:
                         print(f"Error during code generation: {str(e)}")
+                else:
+                    print("No code generation option specified.")
 
             except Exception as e:
                 print(f"AST(raw): {ast.raw_structure()}")
