@@ -5,7 +5,7 @@ MFL (Mini Functional Language) Parser and Type Checker
 
 import argparse
 import subprocess
-import copy
+import os
 import sys
 import shlex  # For safe shell command construction
 from mfl_parser import FunctionalParser
@@ -26,7 +26,8 @@ def main():
     arg_parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output from all modules')
     arg_parser.add_argument('-f', '--frontend-only', action='store_true', help='Only run the parser and type checker')
     arg_parser.add_argument('-b', '--backend-verbose', action='store_true', help='Enable verbose output from backend')
-    arg_parser.add_argument('-o', '--output', default="a.out", help='Output file name (without suffix)')
+    arg_parser.add_argument('-o', '--output', default="output", help='Output file name (without suffix)')
+    arg_parser.add_argument('-r', '--run', help='Run the specified file')
     arg_parser.add_argument('-e', '--erlang', action='store_true', help='Compile to BEAM code via Core Erlang')
     arg_parser.add_argument('-s', '--secd', action='store_true', help='Execute using SECD machine')
     arg_parser.add_argument('-k', '--ski', action='store_true', help='Execute using SKI combinator machine')
@@ -34,6 +35,20 @@ def main():
     arg_parser.add_argument('-g', '--gmachine', action='store_true', help='Execute using G-machine')
     arg_parser.add_argument('-l', '--llvm', action='store_true', help='Generate LLVM IR and compile to binary code')
     args = arg_parser.parse_args()
+
+    if args.run:
+        filename, extension = os.path.splitext(args.run)
+        extension = extension.lower()
+        if extension == ".ski":     # SKI combinator machine
+            from mfl_ski import SKIMachine
+            ski_machine = SKIMachine()
+            ski_term = ski_machine.load_ski_from_file(args.run)
+            result = ski_machine.reduce(ski_term)
+            print(f"SKI machine result: {result}")
+        else:
+            print(f"Unknown file extension: {extension}")
+            sys.exit(1)
+        sys.exit(0)
 
     parser = FunctionalParser([], {}, verbose=args.verbose)  # Grammar rules handled in reduction methods
 
@@ -94,10 +109,15 @@ def main():
                 elif args.ski:
                     try:
                         # Execute using SKI machine
-                        from mfl_ski import execute_ast 
+                        from mfl_ski import SKIMachine
                         if args.verbose or args.backend_verbose:
                             print("\nExecuting with SKI combinator machine...")
-                        result = execute_ast(ast, args.backend_verbose)
+                        ski_machine = SKIMachine(args.backend_verbose)
+                        ski_term = ski_machine.to_ski(ast)
+                        ski_file = f"{args.output}.ski"
+                        ski_machine.save_ski_to_file(ski_term, ski_file)
+                        print(f"SKI code saved to: {ski_file}")
+                        result = ski_machine.reduce(ski_term)
                         print(f"SKI machine result: {result}")
                     except Exception as e:
                         print(f"Error executing with SKI machine: {e}")

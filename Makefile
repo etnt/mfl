@@ -59,6 +59,7 @@ test_type:
 .PHONY: test_ski
 test_ski:
 	(cd test; ../venv/bin/$(PYTHON) -m unittest test_ski.py -v )
+	(cd test; ../venv/bin/$(PYTHON) -m unittest test_ski_io.py -v )
 
 .PHONY: test_llvm
 test_llvm:

@@ -9,6 +9,10 @@ class Combinator(ASTNode):
     def __str__(self):
         return self.name
 
+    def to_string(self) -> str:
+        """Convert combinator to string representation."""
+        return self.name
+
 class S(Combinator):
     def __init__(self):
         super().__init__("S")
@@ -172,7 +176,7 @@ class SKIMachine:
         if isinstance(node, BinOp):
             left = self.to_ski(node.left)
             right = self.to_ski(node.right)
-            
+
             # Map operators to combinators
             op_map = {
                 "+": self.plus,
@@ -187,7 +191,7 @@ class SKIMachine:
                 "&&": self.and_,
                 "||": self.or_
             }
-            
+
             if node.op in op_map:
                 return Apply(Apply(op_map[node.op], left), right)
 
@@ -361,6 +365,120 @@ class SKIMachine:
             return self.occurs_free(var_name, node.left) or self.occurs_free(var_name, node.right)
         return False
 
+    def serialize_ski(self, node: ASTNode) -> str:
+        """Convert SKI expression to string representation."""
+        if isinstance(node, (S, K, I, B, C, SPrime, BStar, CPrime, Plus, Minus, 
+                           Multiply, Divide, GreaterThan, LessThan, GreaterEqual, 
+                           LessEqual, Equal, And, Or, Not, IfCombinator)):
+            return node.to_string()
+        elif isinstance(node, Int):
+            return f"Int({node.value})"
+        elif isinstance(node, Bool):
+            return f"Bool({str(node.value).lower()})"
+        elif isinstance(node, Var):
+            return f"Var({node.name})"
+        elif isinstance(node, Apply):
+            return f"({self.serialize_ski(node.func)} {self.serialize_ski(node.arg)})"
+        else:
+            raise ValueError(f"Unknown node type: {type(node)}")
+
+    def deserialize_ski(self, ski_str: str) -> ASTNode:
+        """Convert string representation back to SKI expression."""
+        ski_str = ski_str.strip()
+
+        # Handle basic combinators
+        if ski_str == "S":
+            return S()
+        elif ski_str == "K":
+            return K()
+        elif ski_str == "I":
+            return I()
+        elif ski_str == "B":
+            return B()
+        elif ski_str == "C":
+            return C()
+        elif ski_str == "S'":
+            return SPrime()
+        elif ski_str == "B*":
+            return BStar()
+        elif ski_str == "C'":
+            return CPrime()
+        elif ski_str == "+":
+            return Plus()
+        elif ski_str == "-":
+            return Minus()
+        elif ski_str == "*":
+            return Multiply()
+        elif ski_str == "/":
+            return Divide()
+        elif ski_str == ">":
+            return GreaterThan()
+        elif ski_str == "<":
+            return LessThan()
+        elif ski_str == ">=":
+            return GreaterEqual()
+        elif ski_str == "<=":
+            return LessEqual()
+        elif ski_str == "==":
+            return Equal()
+        elif ski_str == "&&":
+            return And()
+        elif ski_str == "||":
+            return Or()
+        elif ski_str == "!":
+            return Not()
+        elif ski_str == "if":
+            return IfCombinator()
+
+        # Handle Int and Bool
+        if ski_str.startswith("Int(") and ski_str.endswith(")"):
+            value = int(ski_str[4:-1])
+            return Int(value)
+        elif ski_str.startswith("Bool(") and ski_str.endswith(")"):
+            value = ski_str[5:-1].lower() == "true"
+            return Bool(value)
+        elif ski_str.startswith("Var(") and ski_str.endswith(")"):
+            name = ski_str[4:-1]
+            return Var(name)
+
+        # Handle application
+        if ski_str.startswith("(") and ski_str.endswith(")"):
+            # Remove outer parentheses
+            inner = ski_str[1:-1]
+            # Find the split point between function and argument
+            paren_count = 0
+            split_idx = None
+            for i, char in enumerate(inner):
+                if char == "(":
+                    paren_count += 1
+                elif char == ")":
+                    paren_count -= 1
+                elif char == " " and paren_count == 0:
+                    split_idx = i
+                    break
+
+            if split_idx is None:
+                raise ValueError(f"Invalid SKI expression: {ski_str}")
+
+            func_str = inner[:split_idx]
+            arg_str = inner[split_idx + 1:]
+
+            return Apply(self.deserialize_ski(func_str), self.deserialize_ski(arg_str))
+
+        raise ValueError(f"Invalid SKI expression: {ski_str}")
+
+    def save_ski_to_file(self, node: ASTNode, filename: str):
+        """Save SKI expression to a file."""
+        ski_str = self.serialize_ski(node)
+        with open(filename, 'w') as f:
+            f.write(ski_str)
+
+    def load_ski_from_file(self, filename: str) -> ASTNode:
+        """Load SKI expression from a file."""
+        with open(filename, 'r') as f:
+            ski_str = f.read()
+        return self.deserialize_ski(ski_str)
+
 def execute_ast(ast: ASTNode, verbose: bool = False) -> ASTNode:
     """Execute an AST using the SKI combinator machine."""
     machine = SKIMachine(verbose)
@@ -370,3 +488,15 @@ def execute_ast(ast: ASTNode, verbose: bool = False) -> ASTNode:
     if verbose:
         print(f"Final result: {result}")
     return result
+
+def save_ski_code(ast: ASTNode, filename: str, verbose: bool = False):
+    """Convert AST to SKI combinators and save to file."""
+    machine = SKIMachine(verbose)
+    ski_term = machine.to_ski(ast)
+    machine.save_ski_to_file(ski_term, filename)
+
+def load_and_run_ski_code(filename: str, verbose: bool = False) -> ASTNode:
+    """Load SKI code from file and execute it."""
+    machine = SKIMachine(verbose)
+    ski_term = machine.load_ski_from_file(filename)
+    return machine.reduce(ski_term)

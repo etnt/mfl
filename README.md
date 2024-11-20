@@ -88,7 +88,8 @@ options:
   -v, --verbose         Enable verbose output from all modules
   -f, --frontend-only   Only run the parser and type checker
   -b, --backend-verbose Enable verbose output from backend
-  -o, --output OUTPUT   Output file name
+  -o, --output OUTPUT   Output file name (without suffix)
+  -r, --run RUN         Run the specified file
   -e, --erlang          Compile to BEAM code via Core Erlang
   -s, --secd            Execute using SECD machine
   -k, --ski             Execute using SKI combinator machine
@@ -97,7 +98,7 @@ options:
   -l, --llvm            Generate LLVM IR and compile to binary code 
 ```
 
-Note: The LLVM- and G-machine backends are not working atm.
+Note: The G-machine backends are not working atm.
 
 ## Examples
 Example, generating BEAM code:
@@ -150,15 +151,22 @@ SECD instructions: [('LDF', [('LDF', [('LD', (1, 0)), ('LD', (0, 0)), 'ADD', 'RE
 SECD machine result: 5
 ```
 
-Function composition, using the SKI machine:
+Function composition, using the SKI machine and also show how to run the SKI code from file:
 ```bash
-python3 ./mfl/mfl.py -k  "let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x+1) in let double = λx.(x+x) in ((compose double add1) 2)"
+python3 ./mfl/mfl.py -k -o compose "let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x+1) in let double = λx.(x+x) in ((compose double add1) 2)"
 Successfully parsed!
 AST: let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x + 1) in let double = λx.(x + x) in (((compose double) add1) 2)
 AST(typed): Let<int>(Var<->(->(int, int), ->(->(int, int), ->(int, int)))>("compose"), Function<->(->(int, int), ->(->(int, int), ->(int, int)))>(Var<->(int, int)>("f"), Function<->(->(int, int), ->(int, int))>(Var<->(int, int)>("g"), Function<->(int, int)>(Var<int>("x"), Apply<int>(Var<->(int, int)>("f"), Apply<int>(Var<->(int, int)>("g"), Var<int>("x")))))), Let<int>(Var<->(int, int)>("add1"), Function<->(int, int)>(Var<int>("x"), BinOp<int>("+", Var<int>("x"), Int<int>(1))), Let<int>(Var<->(int, int)>("double"), Function<->(int, int)>(Var<int>("x"), BinOp<int>("+", Var<int>("x"), Var<int>("x"))), Apply<int>(Apply<->(int, int)>(Apply<->(->(int, int), ->(int, int))>(Var<->(->(int, int), ->(->(int, int), ->(int, int)))>("compose"), Var<->(int, int)>("double")), Var<->(int, int)>("add1")), Int<int>(2))))) 
 Inferred type: int
 Translating to SKI combinators...
 SKI term: (((S ((S ((S (K S)) ((S ((S (K S)) ((S (K (S (K S)))) ((S ((S (K S)) ((S (K K)) ((S (K S)) ((S ((S (K S)) ((S (K K)) I))) (K I)))))) (K ((S (K K)) I)))))) (K (K (K 2)))))) (K (K ((S ((S (K +)) I)) I))))) (K ((S ((S (K +)) I)) (K 1)))) ((S ((S (K S)) ((S (K K)) ((S (K S)) ((S (K K)) I))))) (K ((S ((S (K S)) ((S (K K)) I))) (K I)))))
+SKI code saved to: compose.ski
+SKI machine result: 6
+
+cat compose.ski
+(((S ((S ((S (K S)) ((S ((S (K S)) ((S (K (S (K S)))) ((S ((S (K S)) ((S (K K)) ((S (K S)) ((S ((S (K S)) ((S (K K)) I))) (K I)))))) (K ((S (K K)) I)))))) (K (K (K Int(2))))))) (K (K ((S ((S (K +)) I)) I))))) (K ((S ((S (K +)) I)) (K Int(1))))) ((S ((S (K S)) ((S (K K)) ((S (K S)) ((S (K K)) I))))) (K ((S ((S (K S)) ((S (K K)) I))) (K I)))))
+
+python ./mfl/mfl.py -r compose.ski
 SKI machine result: 6
  ```
 
