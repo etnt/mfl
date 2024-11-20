@@ -2,7 +2,7 @@
 
 import ply.yacc as yacc
 from mfl_ply_lexer import tokens
-from mfl_ast import Int, Bool, BinOp, UnaryOp, If, Var, Function, Apply, Let, LetRec
+from mfl_ast import Int, Bool, BinOp, UnaryOp, If, Var, Function, Apply, Lets, Let, LetRec, LetBinding
 
 precedence = (
     ('left', 'PLUS', 'MINUS'),
@@ -48,22 +48,45 @@ def p_expr_var(p):
     '''expr : IDENTIFIER'''
     p[0] = Var(p[1])
 
-def p_expr_let(p):
-    '''expr : LET IDENTIFIER EQUALS expr_or_lambda IN expr'''
-    p[0] = Let(Var(p[2]), p[4], p[6])
+def p_expr_let_multiple(p):
+    '''expr : LET let_bindings IN expr'''
+    # Convert multiple bindings into nested Let expressions
+    bindings = p[2]
+    body = p[4]
+
+    # Start from the last binding and work backwards
+    result = body
+    for binding in reversed(bindings):
+        result = Let(binding.name, binding.value, result)
+
+    p[0] = result
+
+def p_let_bindings(p):
+    '''let_bindings : let_binding
+                    | let_binding COMMA let_bindings'''
+    if len(p) == 2:
+        p[0] = [p[1]]  # Single let binding wrapped in list
+    elif type(p[3]) is list:
+        p[0] = [p[1]] + p[3]  # Concatenate lists of bindings
+    else:
+        p[0] = [p[1]] + [p[3]]  # Concatenate lists of bindings
+
+def p_let_binding(p):
+    '''let_binding : IDENTIFIER EQUALS expr_or_lambda'''
+    p[0] = LetBinding(Var(p[1]), p[3])
 
 def p_expr_or_lambda(p):
     '''expr_or_lambda : expr
-                       | expr_lambda'''
+                     | lambda_expr'''
     p[0] = p[1]
 
-def p_expr_letrec(p):
-    '''expr : LETREC IDENTIFIER EQUALS expr_lambda IN expr'''
-    p[0] = LetRec(Var(p[2]), p[4], p[6])
-
-def p_expr_lambda(p):
-    '''expr_lambda : LAMBDA IDENTIFIER DOT expr'''
+def p_lambda_expr(p):
+    '''lambda_expr : LAMBDA IDENTIFIER DOT expr_or_lambda'''
     p[0] = Function(Var(p[2]), p[4])
+
+def p_expr_letrec(p):
+    '''expr : LETREC IDENTIFIER EQUALS lambda_expr IN expr'''
+    p[0] = LetRec(Var(p[2]), p[4], p[6])
 
 def p_expr_app(p):
     '''expr : expr expr %prec TIMES'''

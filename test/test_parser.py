@@ -100,7 +100,7 @@ class TestIfExpressions(unittest.TestCase):
         self.assertEqual(ast.cond.right.value, 3)
 
     def test_if_with_arithmetic(self):
-        ast = self.parser.parse("if True then 2 + 3 else 5 - 1")
+        ast = self.parser.parse("if True then (2 + 3) else (5 - 1)")
         self.assertIsInstance(ast, If)
         self.assertIsInstance(ast.then_expr, BinOp)
         self.assertEqual(ast.then_expr.op, "+")

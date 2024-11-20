@@ -46,7 +46,13 @@ def main():
                 sys.exit(1)
             else:
                 print("Successfully parsed!")
-                print(f"AST(pretty): {ast}")
+                print(f"AST(raw): {ast.raw_structure()}")
+
+            # Transform multiple let bindings to a single let's
+            transformer = ASTTransformer()
+            ast = transformer.multiple_bindings_to_let(ast)
+            print(f"AST(transformed): {ast}")
+            print(f"AST(transformed, raw): {ast.raw_structure()}")
 
             # Type check the parsed expression
             type_ctx = {}  # Empty typing context

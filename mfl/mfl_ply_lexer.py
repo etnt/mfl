@@ -28,6 +28,7 @@ tokens = (
     'LESS',
     'LESSEQ',
     'GREATEREQ',
+    'COMMA'
 )
 
 # Regular expression rules for simple tokens
@@ -44,7 +45,7 @@ t_LESS = r'<'
 t_EQUALOP = r'=='
 t_LESSEQ = r'<='
 t_GREATEREQ = r'>='
-t_LAMBDA = r'\\|λ'
+t_LAMBDA = r'λ'
 t_ignore = ' \t'
 
 # Define regular expression rules for keywords
@@ -77,6 +78,10 @@ def t_INT_LITERAL(t):
 def t_newline(t):
     r'\n+'
     t.lexer.lineno += len(t.value)
+
+def t_COMMA(t):
+    r','
+    return t
 
 def t_error(t):
     print(f"Illegal character '{t.value[0]}' at line {t.lineno}")

@@ -34,6 +34,14 @@ class ASTNode:
             return f'Apply({self.func.raw_structure()}, {self.arg.raw_structure()})'
         elif isinstance(self, Let):
             return f'Let({self.name.raw_structure()}, {self.value.raw_structure()}, {self.body.raw_structure()})'
+        elif isinstance(self, Lets):
+            if type(self.bindings[0]) is list:
+                bs = ",".join([binding.raw_structure() for binding in self.bindings[0]])
+                return f"Lets([{bs}], {self.body.raw_structure()})"
+            else:
+                return f"Lets({self.bindings[0].raw_structure()}, {self.body.raw_structure()})"
+        elif isinstance(self, LetBinding):
+            return f'LetBinding({self.name.raw_structure()}, {self.value.raw_structure()})'
         elif isinstance(self, LetRec):
             return f'LetRec({self.name.raw_structure()}, {self.value.raw_structure()}, {self.body.raw_structure()})'
         elif isinstance(self, If):
@@ -146,6 +154,35 @@ class Apply(ASTNode):
 
     def __repr__(self):
         return f"({self.func} {self.arg})"
+
+@dataclasses.dataclass
+class LetBinding(ASTNode):
+    """
+    Represent a single let binding
+    """
+    name: Var
+    value: Any # Value expression
+
+    def __post_init__(self):
+        super().__init__()
+
+    def __repr__(self):
+        return f"{self.name} = {self.value}"
+
+@dataclasses.dataclass
+class Lets(ASTNode):
+    """
+    Represent multiple let bindings.
+    Allows local variable definitions
+    """
+    bindings: Any
+    body: Any 
+
+    def __post_init__(self):
+        super().__init__()
+
+    def __repr__(self):
+        return f"lets {self.bindings} in {self.body}"
 
 @dataclasses.dataclass
 class Let(ASTNode):

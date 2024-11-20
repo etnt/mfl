@@ -52,7 +52,7 @@ This implementation demonstrates how complex lambda expressions can be reduced t
 
 ### 8. MFL - Transform (mfl_transform.py)
 An AST transformation code that converts `letrec` constructs to `let` constructs plus using a `Y-combinator` to achieve recursion. This transformation is useful for languages that do not support `letrec` directly. For Core Erlang however, which supports a form of
-`letrec`, a special transformation is made to fit how Core Erlang wants it.
+`letrec`, a special transformation is made to fit how Core Erlang wants it. It also provide syntactic sugar in form of a transformation that converts multiple let bindings to a nested let expression.
 
 ## Requirements
 
@@ -211,6 +211,21 @@ AST(transformed): let Y = λf.(λx.(f (x x)) λx.(f (x x))) in let fac = (Y λfa
 Translating to SKI combinators...
 SKI term: (((S (K ((S I) (K 5)))) ((S I) (K ((S (K (S ((S ((S (K if)) ((S ((S (K ==)) I)) (K 0)))) (K 1))))) ((S (K (S ((S (K *)) I)))) ((S ((S (K S)) ((S (K K)) I))) (K ((S ((S (K -)) I)) (K 1))))))))) ((S ((S ((S (K S)) ((S (K K)) I))) (K ((S I) I)))) ((S ((S (K S)) ((S (K K)) I))) (K ((S I) I)))))
 SKI machine result: 120
+```
+
+Example, using multiple let bindings:
+
+```bash
+$ python ./mfl/mfl.py -s "let compose = λf.λg.λx.(f (g x)), add1 = λx.(x+1), double = λx.(x+x) in ((compose double add1) 2)"
+Successfully parsed!
+AST(raw): Let(Var("compose"), Function(Var("f"), Function(Var("g"), Function(Var("x"), Apply(Var("f"), Apply(Var("g"), Var("x")))))), Let(Var("add1"), Function(Var("x"), BinOp("+", Var("x"), Int(1))), Let(Var("double"), Function(Var("x"), BinOp("+", Var("x"), Var("x"))), Apply(Apply(Apply(Var("compose"), Var("double")), Var("add1")), Int(2)))))
+AST(transformed): let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x + 1) in let double = λx.(x + x) in (((compose double) add1) 2)
+AST(transformed, raw): Let(Var("compose"), Function(Var("f"), Function(Var("g"), Function(Var("x"), Apply(Var("f"), Apply(Var("g"), Var("x")))))), Let(Var("add1"), Function(Var("x"), BinOp("+", Var("x"), Int(1))), Let(Var("double"), Function(Var("x"), BinOp("+", Var("x"), Var("x"))), Apply(Apply(Apply(Var("compose"), Var("double")), Var("add1")), Int(2)))))
+AST(typed): Let<int>(Var<->(->(int, int), ->(->(int, int), ->(int, int)))>("compose"), Function<->(->(int, int), ->(->(int, int), ->(int, int)))>(Var<->(int, int)>("f"), Function<->(->(int, int), ->(int, int))>(Var<->(int, int)>("g"), Function<->(int, int)>(Var<int>("x"), Apply<int>(Var<->(int, int)>("f"), Apply<int>(Var<->(int, int)>("g"), Var<int>("x")))))), Let<int>(Var<->(int, int)>("add1"), Function<->(int, int)>(Var<int>("x"), BinOp<int>("+", Var<int>("x"), Int<int>(1))), Let<int>(Var<->(int, int)>("double"), Function<->(int, int)>(Var<int>("x"), BinOp<int>("+", Var<int>("x"), Var<int>("x"))), Apply<int>(Apply<->(int, int)>(Apply<->(->(int, int), ->(int, int))>(Var<->(->(int, int), ->(->(int, int), ->(int, int)))>("compose"), Var<->(int, int)>("double")), Var<->(int, int)>("add1")), Int<int>(2)))))
+Inferred final type: intAST(transformed): let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x + 1) in let double = λx.(x + x) in (((compose double) add1) 2)
+AST(transformed, raw): Let(Var("compose"), Function(Var("f"), Function(Var("g"), Function(Var("x"), Apply(Var("f"), Apply(Var("g"), Var("x")))))), Let(Var("add1"), Function(Var("x"), BinOp("+", Var("x"), Int(1))), Let(Var("double"), Function(Var("x"), BinOp("+", Var("x"), Var("x"))), Apply(Apply(Apply(Var("compose"), Var("double")), Var("add1")), Int(2)))))
+SECD instructions: [('LDF', [('LDF', [('LDF', ['NIL', 'NIL', ('LD', (0, 0)), 'CONS', ('LD', (1, 0)), 'AP', 'CONS', ('LD', (2, 0)), 'AP', 'RET']), 'RET']), 'RET']), ('LET', 0), ('LDF', [('LD', (0, 0)), ('LDC', 1), 'ADD', 'RET']), ('LET', 1), ('LDF', [('LD', (0, 0)), ('LD', (0, 0)), 'ADD', 'RET']), ('LET', 2), 'NIL', ('LDC', 2), 'CONS', 'NIL', ('LD', (1, 1)), 'CONS', 'NIL', ('LD', (0, 2)), 'CONS', ('LD', (2, 0)), 'AP', 'AP', 'AP']
+SECD machine result: 6 
 ```
 
 ## LLVM IR Generation

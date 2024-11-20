@@ -13,8 +13,13 @@ sys.path.insert(0, os.path.join(current_dir, '../mfl'))
 from mfl_ply_parser import parse
 from mfl_type_checker import BinOp, Int, Bool, If, infer_j
 from mfl_ast import execute_ast
+from mfl_transform import ASTTransformer
+
 
 class TestPLYParser(unittest.TestCase):
+
+    def setUp(self):
+        self.transformer = ASTTransformer()
 
     def test_greater_than(self):
         ast = parse("5 > 3")
@@ -59,17 +64,17 @@ class TestPLYParser(unittest.TestCase):
 
     def test_let_expression_double(self):
         ast = parse("let double = λx.(x*2) in (double 21)")
-        result = execute_ast(ast, False)
+        result = execute_ast(self.transformer.multiple_bindings_to_let(ast), False)
         self.assertEqual(result, 42)
 
     def test_let_expression_add(self):
-        ast = parse("let add =  λx.λy.(x+y) in (add 3 4)")
-        result = execute_ast(ast, False)
+        ast = parse("let add = λx.λy.(x+y) in (add 3 4)")
+        result = execute_ast(self.transformer.multiple_bindings_to_let(ast), False)
         self.assertEqual(result, 7)
 
     def test_let_expression_compose(self):
-        ast = parse("let compose = λf.λg.λx.(f (g x)) in let add1 = λx.(x+1) in let double = λx.(x+x) in ((compose double add1) 2)")
-        result = execute_ast(ast, False)
+        ast = parse("let compose = λf.λg.λx.(f (g x)), add1 = λx.(x+1), double = λx.(x+x) in ((compose double add1) 2)")
+        result = execute_ast(self.transformer.multiple_bindings_to_let(ast), False)
         self.assertEqual(result, 6)
 
     def test_basic_if_structure(self):
@@ -106,12 +111,12 @@ class TestPLYParser(unittest.TestCase):
 
     def test_if_execution_true_branch(self):
         ast = parse("if 5 > 3 then 42 else 0")
-        result = execute_ast(ast, False)
+        result = execute_ast(self.transformer.multiple_bindings_to_let(ast), False)
         self.assertEqual(result, 42)
 
     def test_if_execution_false_branch(self):
         ast = parse("if 2 > 3 then 42 else 0")
-        result = execute_ast(ast, False)
+        result = execute_ast(self.transformer.multiple_bindings_to_let(ast), False)
         self.assertEqual(result, 0)
 
     def test_if_type_checking(self):

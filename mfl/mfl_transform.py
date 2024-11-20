@@ -1,13 +1,78 @@
 import dataclasses
 from typing import Any
 from mfl_ast import (
-    ASTNode, Var, Function, Apply, Let,
+    ASTNode, Var, Function, Apply, Let, Lets, LetBinding,
     BinOp, UnaryOp, If, LetRec, Int, Bool
 )
 
 class ASTTransformer:
     def __init__(self) -> None:
         self.counter = 0
+
+    @staticmethod
+    def multiple_bindings_to_let(ast: ASTNode) -> ASTNode:
+        """
+        Transform multiple let bindings to a single let binding
+
+        Example: let x = 3, y = 4 in x + y
+
+        result in:
+
+          Lets([LetBinding(Var("x"), Int(3)),
+                LetBinding(Var("y"), Int(4))],
+                BinOp("+", Var("x"), Var("y")))
+
+        will be transformed to:
+
+          Let(Var("x"),
+              Int(3),
+              Let(Var("y"),
+                  Int(4),
+                  BinOp("+", Var("x"), Var("y"))))
+
+        """
+        def transform_node(node: ASTNode) -> ASTNode:
+            if isinstance(node, Lets):
+                # Get the bindings and body
+                bindings = node.bindings[0]  # Assuming bindings is a tuple/list with one element
+                body = node.body
+
+                # Start with the innermost expression (the body)
+                result = body
+
+                if type(bindings) is list:
+                    # Work backwards through the bindings to create nested Let expressions
+                    for binding in reversed(bindings):
+                        result = Let(binding.name, binding.value, result)
+                else:
+                    # Create a single Let expression
+                    result = Let(bindings.name, bindings.value, result)
+
+                return result
+
+            # For other node types, recursively transform their children
+            elif isinstance(node, Function):
+                return Function(node.arg, transform_node(node.body))
+            elif isinstance(node, Apply):
+                return Apply(transform_node(node.func), transform_node(node.arg))
+            elif isinstance(node, Let):
+                return Let(node.name, transform_node(node.value), transform_node(node.body))
+            elif isinstance(node, If):
+                return If(
+                    transform_node(node.cond),
+                    transform_node(node.then_expr),
+                    transform_node(node.else_expr)
+                )
+            elif isinstance(node, BinOp):
+                return BinOp(node.op, transform_node(node.left), transform_node(node.right))
+            elif isinstance(node, UnaryOp):
+                return UnaryOp(node.op, transform_node(node.operand))
+
+            # For other nodes (Var, Int, Bool), return as-is
+            return node
+
+        # Transform the entire AST
+        return transform_node(ast)
 
     @staticmethod
     def create_y_combinator() -> Function:
@@ -120,14 +185,12 @@ class ASTTransformer:
         # Transform the entire AST
         return transform_node(ast)
 
-
     def generate_variable_name(self) -> str:
         """
         Generate a new variable name
         """
         self.counter += 1
         return f"V{self.counter}"
-
 
     def letrec_for_core_erlang(self, node: LetRec) -> ASTNode:
         """
@@ -220,36 +283,3 @@ class ASTTransformer:
             ),
             node.body
         )
-
-if __name__ == "__main__":
-    # Create the example AST from the docstring
-    # letrec fac = λx.(if (x == 0) then 1 else (x * (fac (x - 1)))) in (fac 5)
-    fac_ast = LetRec(
-        Var("fac"),
-        Function(
-            Var("x"),
-            If(
-                BinOp("==", Var("x"), Int(0)),
-                Int(1),
-                BinOp(
-                    "*",
-                    Var("x"),
-                    Apply(
-                        Var("fac"),
-                        BinOp("-", Var("x"), Int(1))
-                    )
-                )
-            )
-        ),
-        Apply(Var("fac"), Int(5))  # Changed from Bool(True) to Int(5) to match the example
-    )
-
-    # Create transformer and transform the AST
-    transformer = ASTTransformer()
-    result = transformer.letrec_for_core_erlang(fac_ast)
-
-    # Print the original and transformed ASTs
-    print("Original AST:")
-    print(fac_ast.raw_structure())
-    print("\nTransformed AST:")
-    print(result.raw_structure())
