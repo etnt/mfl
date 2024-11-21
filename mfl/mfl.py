@@ -41,7 +41,7 @@ def main():
         extension = extension.lower()
         if extension == ".ski":     # SKI combinator machine
             from mfl_ski import SKIMachine
-            ski_machine = SKIMachine()
+            ski_machine = SKIMachine(args.backend_verbose)
             ski_term = ski_machine.load_ski_from_file(args.run)
             result = ski_machine.reduce(ski_term)
             print(f"SKI machine result: {result}")
