@@ -28,6 +28,7 @@ def main():
     arg_parser.add_argument('-b', '--backend-verbose', action='store_true', help='Enable verbose output from backend')
     arg_parser.add_argument('-o', '--output', default="output", help='Output file name (without suffix)')
     arg_parser.add_argument('-r', '--run', help='Run the specified file')
+    arg_parser.add_argument('-p', '--params', help='Parameters to pass to the program')
     arg_parser.add_argument('-e', '--erlang', action='store_true', help='Compile to BEAM code via Core Erlang')
     arg_parser.add_argument('-s', '--secd', action='store_true', help='Execute using SECD machine')
     arg_parser.add_argument('-k', '--ski', action='store_true', help='Execute using SKI combinator machine')
@@ -36,21 +37,26 @@ def main():
     arg_parser.add_argument('-l', '--llvm', action='store_true', help='Generate LLVM IR and compile to binary code')
     args = arg_parser.parse_args()
 
+    parser = FunctionalParser([], {}, verbose=args.verbose)  # Grammar rules handled in reduction methods
+
     if args.run:
         filename, extension = os.path.splitext(args.run)
         extension = extension.lower()
         if extension == ".ski":     # SKI combinator machine
-            from mfl_ski import SKIMachine
-            ski_machine = SKIMachine(args.backend_verbose)
-            ski_term = ski_machine.load_ski_from_file(args.run)
-            result = ski_machine.reduce(ski_term)
+            from mfl_ski import load_and_run_ski_code
+            #from mfl_ski import SKIMachine
+            #ski_machine = SKIMachine(args.backend_verbose)
+            #ski_term = ski_machine.load_ski_from_file(args.run)
+            #result = ski_machine.reduce(ski_term)
+            params_ast = None
+            if args.params:
+                params_ast = ply_parser.parse(args.params)
+            result = load_and_run_ski_code(args.run, args.backend_verbose, params_ast)
             print(f"SKI machine result: {result}")
         else:
             print(f"Unknown file extension: {extension}")
             sys.exit(1)
         sys.exit(0)
-
-    parser = FunctionalParser([], {}, verbose=args.verbose)  # Grammar rules handled in reduction methods
 
     # If expression is provided as command-line argument, use it
     if args.expression:

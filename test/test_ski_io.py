@@ -89,6 +89,34 @@ class TestSKIIO(unittest.TestCase):
         result = load_and_run_ski_code(filename)
         self.assertEqual(result.value, 15)
 
+    def test_file_io_with_argument(self):
+        # Test loading SKI code and applying an argument
+        # Save a function that doubles its input
+        ast = self.parser.parse("let double =λx.(x*2) in double")
+        filename = os.path.join(self.test_dir, "test_with_arg.ski")
+        save_ski_code(ast, filename)
+
+        # Test with different arguments
+        result = load_and_run_ski_code(filename, arg=21)
+        self.assertEqual(result.value, 42)
+
+        result = load_and_run_ski_code(filename, arg=5)
+        self.assertEqual(result.value, 10)
+
+    def test_file_io_with_boolean_argument(self):
+        # Test loading SKI code and applying a boolean argument
+        # Save a function that negates its input
+        ast = self.parser.parse("let myor =λx.(x | False) in myor")
+        filename = os.path.join(self.test_dir, "test_with_bool_arg.ski")
+        save_ski_code(ast, filename)
+
+        # Test with different boolean arguments
+        result = load_and_run_ski_code(filename, verbose=True, arg=True)
+        self.assertTrue(result.value)
+
+        result = load_and_run_ski_code(filename, arg=False)
+        self.assertFalse(result.value)
+
     def tearDown(self):
         # Clean up temporary test files
         for file in os.listdir(self.test_dir):

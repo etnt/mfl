@@ -98,12 +98,12 @@ class Equal(Combinator):
 class And(Combinator):
     """Logical AND combinator."""
     def __init__(self):
-        super().__init__("&&")
+        super().__init__("&")
 
 class Or(Combinator):
     """Logical OR combinator."""
     def __init__(self):
-        super().__init__("||")
+        super().__init__("|")
 
 class Not(Combinator):
     """Logical NOT combinator."""
@@ -188,8 +188,9 @@ class SKIMachine:
                 ">=": self.ge,
                 "<=": self.le,
                 "==": self.eq,
-                "&&": self.and_,
-                "||": self.or_
+                "&": self.and_,
+                "|": self.or_,
+                "!": self.not_
             }
 
             if node.op in op_map:
@@ -421,9 +422,9 @@ class SKIMachine:
             return LessEqual()
         elif ski_str == "==":
             return Equal()
-        elif ski_str == "&&":
+        elif ski_str == "&":
             return And()
-        elif ski_str == "||":
+        elif ski_str == "|":
             return Or()
         elif ski_str == "!":
             return Not()
@@ -495,8 +496,14 @@ def save_ski_code(ast: ASTNode, filename: str, verbose: bool = False):
     ski_term = machine.to_ski(ast)
     machine.save_ski_to_file(ski_term, filename)
 
-def load_and_run_ski_code(filename: str, verbose: bool = False) -> ASTNode:
-    """Load SKI code from file and execute it."""
+def load_and_run_ski_code(filename: str, verbose: bool = False, arg: Union[Int, Bool] = None) -> ASTNode:
+    """Load SKI code from file and execute it with an optional argument."""
     machine = SKIMachine(verbose)
     ski_term = machine.load_ski_from_file(filename)
+
+    # If an argument is provided, apply it to the loaded SKI term
+    if arg is not None:
+        # Create an application node
+        ski_term = Apply(ski_term, arg)
+
     return machine.reduce(ski_term)

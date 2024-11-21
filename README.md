@@ -170,6 +170,18 @@ python ./mfl/mfl.py -r compose.ski
 SKI machine result: 6
  ```
 
+ We can also pass arguments to the SKI program:
+ ```bash
+python ./mfl/mfl.py -k "let add = λx.λy.(x + y) in (add 3)"
+SKI code saved to: output.ski
+
+cat output.ski
+(((S I) (K Int(3))) ((S ((S (K S)) ((S (K K)) ((S (K +)) I)))) (K I)))
+
+python ./mfl/mfl.py -r output.ski -p 4
+SKI machine result: 7
+ ```
+
 Some fun with `if`:
 
 ```bash

@@ -46,6 +46,9 @@ t_EQUALOP = r'=='
 t_LESSEQ = r'<='
 t_GREATEREQ = r'>='
 t_LAMBDA = r'λ'
+t_AND =r'&'
+t_OR = r'\|'
+t_NOT = r'!'
 t_ignore = ' \t'
 
 # Define regular expression rules for keywords
@@ -56,9 +59,6 @@ reserved = {
     'if': 'IF',
     'then': 'THEN',
     'else': 'ELSE',
-    'and': 'AND',
-    'or': 'OR',
-    'not': 'NOT',
     'True': 'BOOL_LITERAL',
     'False': 'BOOL_LITERAL'
 }
