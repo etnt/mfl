@@ -23,7 +23,7 @@ def main():
     # Set up argument parser
     arg_parser = argparse.ArgumentParser(description='Parse and type-check functional programming expressions.')
     arg_parser.add_argument('expression', nargs='?', help='Expression to parse and type-check')
-    arg_parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output from all modules')
+    arg_parser.add_argument('-v', '--verbose', action='count', help='Increase verbosity (can be specified multiple times)')
     arg_parser.add_argument('-f', '--frontend-only', action='store_true', help='Only run the parser and type checker')
     arg_parser.add_argument('-b', '--backend-verbose', action='store_true', help='Enable verbose output from backend')
     arg_parser.add_argument('-o', '--output', default="output", help='Output file name (without suffix)')
@@ -37,6 +37,17 @@ def main():
     arg_parser.add_argument('-l', '--llvm', action='store_true', help='Generate LLVM IR and compile to binary code')
     args = arg_parser.parse_args()
 
+    # Set up verbosity levels
+    if args.verbose is None:
+        info_verbose = False
+        frontend_verbose = False
+    elif args.verbose == 1:
+        info_verbose = True
+        frontend_verbose = False
+    else:
+        info_verbose = True
+        frontend_verbose = True
+
     parser = FunctionalParser([], {}, verbose=args.verbose)  # Grammar rules handled in reduction methods
 
     if args.run:
@@ -44,10 +55,6 @@ def main():
         extension = extension.lower()
         if extension == ".ski":     # SKI combinator machine
             from mfl_ski import load_and_run_ski_code
-            #from mfl_ski import SKIMachine
-            #ski_machine = SKIMachine(args.backend_verbose)
-            #ski_term = ski_machine.load_ski_from_file(args.run)
-            #result = ski_machine.reduce(ski_term)
             params_ast = None
             if args.params:
                 params_ast = ply_parser.parse(args.params)
@@ -66,22 +73,24 @@ def main():
                 print("Parsing failed!")
                 sys.exit(1)
             else:
-                print("Successfully parsed!")
-                print(f"AST(raw): {ast.raw_structure()}")
+                if info_verbose:
+                    print("Successfully parsed!")
+                    print(f"AST(raw): {ast.raw_structure()}")
 
             # Transform multiple let bindings to a single let's
             transformer = ASTTransformer()
             ast = transformer.multiple_bindings_to_let(ast)
-            print(f"AST(transformed): {ast}")
-            print(f"AST(transformed, raw): {ast.raw_structure()}")
+            if info_verbose:
+                print(f"AST(transformed): {ast}")
+                print(f"AST(transformed, raw): {ast.raw_structure()}")
 
             # Type check the parsed expression
             type_ctx = {}  # Empty typing context
             try:
                 expr_type = infer_j(ast, type_ctx)
-                print(f"AST(typed): {ast.typed_structure()}")
-                print(f"Inferred final type: {expr_type}")
-
+                if info_verbose:
+                    print(f"AST(typed): {ast.typed_structure()}")
+                    print(f"Inferred final type: {expr_type}")
 
                 # Perform program transformations
                 transformer = ASTTransformer()
@@ -89,8 +98,9 @@ def main():
                     ast = transformer.letrec_for_core_erlang(ast)
                 else:
                     ast = transformer.transform_letrec_to_let(ast)
-                print(f"AST(transformed): {ast}")
-                print(f"AST(transformed, typed): {ast.typed_structure()}")
+                if info_verbose:
+                    print(f"AST(transformed): {ast}")
+                    print(f"AST(transformed, typed): {ast.typed_structure()}")
 
                 # Maybe stop processing here?
                 if args.frontend_only:
@@ -116,7 +126,7 @@ def main():
                     try:
                         # Execute using SKI machine
                         from mfl_ski import SKIMachine
-                        if args.verbose or args.backend_verbose:
+                        if info_verbose or args.backend_verbose:
                             print("\nExecuting with SKI combinator machine...")
                         ski_machine = SKIMachine(args.backend_verbose)
                         ski_term = ski_machine.to_ski(ast)
@@ -131,7 +141,7 @@ def main():
                     try:
                         # Execute using G-machine
                         from mfl_gmachine import execute_ast
-                        if args.verbose or args.backend_verbose:
+                        if info_verbose or args.backend_verbose:
                             print("\nExecuting with G-machine...")
                         result = execute_ast(ast, args.backend_verbose)
                         print(f"G-machine result: {result}")
@@ -146,7 +156,8 @@ def main():
                         # Verify module
                         llvm_ir = str(generator.module)
                         generator.verify_code(llvm_ir)
-                        print("Module verification successful!")
+                        if info_verbose or args.backend_verbose:
+                            print("Module verification successful!")
                         # Write the generated code to file
                         ll_file = "mfl.ll"
                         with open(ll_file, "w") as f:
@@ -172,7 +183,7 @@ def main():
                     try:
                         # Generate Core Erlang code
                         core_erlang = generate_core_erlang(ast, args.output)
-                        if args.verbose:
+                        if info_verbose:
                             print("\nGenerated Core Erlang code:")
                             print(core_erlang)
                         # Write the generated code to file

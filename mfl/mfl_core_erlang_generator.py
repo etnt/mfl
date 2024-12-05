@@ -176,9 +176,6 @@ class CoreErlangGenerator:
         cond = self.generate(node.cond)
         then_expr = self.generate(node.then_expr)
         else_expr = self.generate(node.else_expr)
-        print(f"cond: {cond}")
-        print(f"then_expr: {then_expr}")
-        print(f"else_expr: {else_expr}")
         return f"case <> of <> when {cond} -> {then_expr} <> when 'true' -> {else_expr} end"
 
 def generate_core_erlang(ast: Any, output="mfl") -> str:
