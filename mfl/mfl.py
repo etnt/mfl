@@ -74,13 +74,14 @@ def main():
                 sys.exit(1)
             else:
                 if info_verbose:
-                    print("Successfully parsed!")
+                    print("\nSuccessfully parsed!")
                     print(f"AST(raw): {ast.raw_structure()}")
 
             # Transform multiple let bindings to a single let's
             transformer = ASTTransformer()
             ast = transformer.multiple_bindings_to_let(ast)
             if info_verbose:
+                print("\nTransformed: multiple bindings to single let")
                 print(f"AST(transformed): {ast}")
                 print(f"AST(transformed, raw): {ast.raw_structure()}")
 
@@ -89,6 +90,7 @@ def main():
             try:
                 expr_type = infer_j(ast, type_ctx)
                 if info_verbose:
+                    print("\nType checked!")
                     print(f"AST(typed): {ast.typed_structure()}")
                     print(f"Inferred final type: {expr_type}")
 
@@ -99,6 +101,7 @@ def main():
                 else:
                     ast = transformer.transform_letrec_to_let(ast)
                 if info_verbose:
+                    print("\nTransformed: letrec to: let + Y-combinator")
                     print(f"AST(transformed): {ast}")
                     print(f"AST(transformed, typed): {ast.typed_structure()}")
 
@@ -149,7 +152,8 @@ def main():
                         print(f"Error executing with G-machine: {e}")
                 elif args.llvm:
                     try:
-                        # Generate LLVM IR code
+                        if info_verbose or args.backend_verbose:
+                            print("\nGenerating LLVM IR...")
                         from mfl_llvm import LLVMGenerator
                         generator = LLVMGenerator(verbose=args.backend_verbose, generate_comments=True)
                         result = generator.generate(ast)
@@ -159,7 +163,7 @@ def main():
                         if info_verbose or args.backend_verbose:
                             print("Module verification successful!")
                         # Write the generated code to file
-                        ll_file = "mfl.ll"
+                        ll_file = f"{args.output}.ll"
                         with open(ll_file, "w") as f:
                             f.write(llvm_ir)
                         print(f"Generated LLVM IR code written to: {ll_file}")
