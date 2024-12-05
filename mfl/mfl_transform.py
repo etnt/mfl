@@ -75,7 +75,7 @@ class ASTTransformer:
         return transform_node(ast)
 
     @staticmethod
-    def create_y_combinator() -> Function:
+    def create_y_combinator(type_info=None) -> Function:
         """
         Original implementation:
 
@@ -89,24 +89,33 @@ class ASTTransformer:
           Y = λf.(λx.f (λy. x x y)) (λx.f (λy. x x y))
 
         """
-        # Create variables
+        # Create variables with type info
         f = Var('f')
+        f.type = type_info
         x = Var('x')
+        x.type = type_info
         y = Var('y')
+        y.type = type_info
 
         # Inner lambda: λy. x x y
-        inner_application = Apply(
-            Apply(x, x), 
-            y
-        )
+        x_x = Apply(x, x)
+        x_x.type = type_info
+        inner_application = Apply(x_x, y)
+        inner_application.type = type_info
         inner_lambda = Function(y, inner_application)
+        inner_lambda.type = type_info
 
         # Outer lambda: λx.f (λy. x x y)
         outer_body = Apply(f, inner_lambda)
+        outer_body.type = type_info
         outer_lambda = Function(x, outer_body)
+        outer_lambda.type = type_info
 
         # Final Y combinator: λf.(λx.f (λy. x x y)) (λx.f (λy. x x y))
-        y_combinator = Function(f, Apply(outer_lambda, outer_lambda))
+        final_apply = Apply(outer_lambda, outer_lambda)
+        final_apply.type = type_info
+        y_combinator = Function(f, final_apply)
+        y_combinator.type = type_info
 
         return y_combinator
 
@@ -123,12 +132,18 @@ class ASTTransformer:
         def transform_node(node: ASTNode) -> ASTNode:
             # Recursively transform child nodes first
             if isinstance(node, LetRec):
-                # Create Y combinator
+                # Create Y combinator with type info from original LetRec
                 y_var = Var('Y')
-                y_combinator = cls.create_y_combinator()
+                y_var.type = node.type
+                y_combinator = cls.create_y_combinator(node.type)
 
                 # Create lambda for the letrec value
                 rec_lambda = Function(node.name, node.value)
+                rec_lambda.type = node.value.type
+
+                # Create the Y application
+                y_apply = Apply(y_var, rec_lambda)
+                y_apply.type = node.type
 
                 # Construct the transformation:
                 # let Y = <y-combinator> in
@@ -138,46 +153,45 @@ class ASTTransformer:
                     y_combinator,
                     Let(
                         node.name,
-                        Apply(y_var, rec_lambda),
+                        y_apply,
                         transform_node(node.body)
                     )
                 )
+                # Preserve type information in the Let nodes
+                transformed.type = node.type
+                transformed.body.type = node.type
+
                 return transformed
 
             # Recursively transform child nodes for other AST types
             if isinstance(node, Function):
-                return Function(
-                    node.arg,
-                    transform_node(node.body)
-                )
+                node.body = transform_node(node.body)
+                return node
+
             elif isinstance(node, Apply):
-                return Apply(
-                    transform_node(node.func),
-                    transform_node(node.arg)
-                )
+                node.func = transform_node(node.func)
+                node.arg = transform_node(node.arg) 
+                return node
+
             elif isinstance(node, Let):
-                return Let(
-                    node.name,
-                    transform_node(node.value),
-                    transform_node(node.body)
-                )
+                node.value = transform_node(node.value)
+                node.body = transform_node(node.body)
+                return node
+
             elif isinstance(node, If):
-                return If(
-                    transform_node(node.cond),
-                    transform_node(node.then_expr),
-                    transform_node(node.else_expr)
-                )
+                node.cond = transform_node(node.cond)
+                node.then_expr = transform_node(node.then_expr)
+                node.else_expr = transform_node(node.else_expr)
+                return node
+
             elif isinstance(node, BinOp):
-                return BinOp(
-                    node.op,
-                    transform_node(node.left),
-                    transform_node(node.right)
-                )
+                node.left = transform_node(node.left)
+                node.right = transform_node(node.right)
+                return node
+
             elif isinstance(node, UnaryOp):
-                return UnaryOp(
-                    node.op,
-                    transform_node(node.operand)
-                )
+                node.operand = transform_node(node.operand)
+                return node
 
             # For simple nodes like Var, Int, Bool, return as-is
             return node

@@ -90,7 +90,7 @@ def main():
                 else:
                     ast = transformer.transform_letrec_to_let(ast)
                 print(f"AST(transformed): {ast}")
-                print(f"AST(transformed, raw): {ast.raw_structure()}")
+                print(f"AST(transformed, typed): {ast.typed_structure()}")
 
                 # Maybe stop processing here?
                 if args.frontend_only:
